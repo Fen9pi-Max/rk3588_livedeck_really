@@ -126,7 +126,7 @@
 		data-mapping = "vesa-24";
 		height-mm = <194>;
 		power-supply = <&lvds_pwr_en>;
-		rotation = <90>; /* Counter-clockwise to the physical portrait mount. */
+		rotation = <270>; /* Counter-clockwise; equals 90 degrees clockwise. */
 		status = "okay";
 		width-mm = <344>;
 
