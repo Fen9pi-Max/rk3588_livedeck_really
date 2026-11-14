@@ -4,6 +4,13 @@
 
 This repository documents the reverse-engineered device trees for the Really TVI2340R RK3588 live streaming box. Hardware facts are taken from the factory Android 12 / vendor 5.10.110 DTB. Android, vendor Linux and mainline Linux startup semantics are kept separate.
 
+See [`dts-7.3-linux/FIXES.md`](dts-7.3-linux/FIXES.md) for the current
+Linux 7.3 board changes and validation boundary.
+
+See [`dts-6.1-linux/FIXES.md`](dts-6.1-linux/FIXES.md) for the vendor 6.1
+fixes, synchronized 7.3 items and deliberately unsynchronized driver-model
+differences.
+
 ## Directories
 
 | Directory | Target | Purpose |
@@ -28,8 +35,8 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | Memory | LPDDR4 topology in the factory DTS |
 | Primary storage | 8-bit eMMC 5.1, HS400, non-removable |
 | SD | 4-bit SDMMC, UHS SDR104, switchable 3.3 V supply |
-| Internal panel | DSI1 -> LT9211 -> 24-bit LVDS, 1920x1080 |
-| Alternate internal panel | eDP0 with EDID |
+| Internal panel | 15.6-inch portrait; DSI1 4-lane -> LT9211 -> dual-link odd/even 24-bit VESA LVDS. The controller scans 1920x1080@60 and the desktop rotates it to a 1080x1920 logical display |
+| Alternate internal panel | eDP0; disabled by default, the physical panel uses DSI1/LT9211 |
 | External display | HDMI1 and DP0 over USB-C Alt Mode |
 | Ethernet | GMAC0, RGMII, PHY address 1 |
 | PCIe | PCIe 2.0 x1 lane 1 and lane 2 |
@@ -40,7 +47,7 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | HDMI input | RK3588 built-in HDMI RX with GPIO4_C6 HPD/detect; LT6911UXC2 at I2C6 `0x2b` |
 | Camera | IMX577 at I2C4 `0x1a` |
 | Wireless | AP6275P Wi-Fi and Bluetooth |
-| Fan | PWM2, 40 kHz, inverted output |
+| Fan | PWM2, 40000 ns period (25 kHz), inverted output |
 | Watchdog | Internal RK3588 DW watchdog and external GPIO0_D3 watchdog are both explicitly disabled |
 
 ## Hardware Topology
@@ -80,7 +87,13 @@ Display routes:
 VOP2 VP0 --> HDMI1
 VOP2 VP1 --> DP0 -> USB-C DP Alt Mode
 VOP2 VP2 --> eDP0 -> eDP panel
-VOP2 VP3 --> DSI1 4-lane -> LT9211 -> LVDS -> 1920x1080 panel
+VOP2 VP3 --> DSI1 4-lane -> LT9211 -> dual-link LVDS
+                                      |
+                      controller scan 1920x1080
+                                      |
+                          rotate left -> 1080x1920
+                                      |
+                          15.6-inch portrait panel
 ```
 
 HDMI input paths:
@@ -122,25 +135,27 @@ SATA0 / PCIe3 -> disabled
 | LT6911 reset | GPIO3_A7 | High | LT6911UXC2 reset |
 | LT6911 HPD control | GPIO2_C3 | High | LT6911UXC2 HPD control |
 | LT6911 interrupt | GPIO1_C7 | Low | LT6911UXC2 interrupt |
-| PCIe lane 2 reset | GPIO3_C7 | High | `pcie2x1l2` |
+| PCIe lane 2 reset | GPIO3_B7 | High | AP6275P `pcie2x1l2` |
 | PCIe lane 1 reset | GPIO1_A7 | High | `pcie2x1l1` |
 | SD power | GPIO4_C3 | High | `vcc_sd` |
-| Type-C VBUS enable | GPIO4_A1 | High | HUSB311 VBUS |
-| USB3 5 V enable | GPIO4_C6 | High | USB3 power |
+| Type-C VBUS enable | GPIO1_D1 | High | HUSB311 VBUS |
+| USB-A host 5 V enable | GPIO3_A5 | High | `vcc5v0_host` |
 | eDP backlight enable | GPIO4_B6 | High | PWM6 backlight |
-| Speaker amplifier enable | GPIO4_A2 | Low | ES8388 speaker path |
-| Headphone amplifier enable | GPIO4_A4 | High | ES8388 headphone path |
+| Speaker amplifier enable | GPIO4_B2 | Low | ES8388 speaker path |
+| Headphone amplifier enable | GPIO4_B4 | High | ES8388 headphone path |
 | Power LED | GPIO3_C0 | High | GPIO LED |
 
 ## PWM and Thermal Control
 
 | Function | Controller | Timing |
 | --- | --- | --- |
-| LVDS backlight | PWM12 | 1 MHz, normal polarity |
-| eDP backlight | PWM6 | 25 kHz, normal polarity |
-| Fan | PWM2 | 40 kHz, inverted polarity |
+| LVDS backlight | PWM12 | 1000000 ns (1 kHz), normal polarity |
+| eDP backlight | PWM6 | 25000 ns (40 kHz), normal polarity |
+| Fan | PWM2 | 40000 ns period (25 kHz), inverted polarity |
 
-The 7.3 tree uses the standard `pwm-fan` binding with cooling levels `0/76/153/204` and package thermal cooling maps.
+Both the 7.3 and 6.1 trees use the standard `pwm-fan` binding with cooling
+levels `0/76/153/204`. Linux 7.3 uses package thermal cooling maps, while
+vendor 6.1 uses its `rockchip,temp-trips` two-stage policy.
 
 ## Watchdog State
 
@@ -160,6 +175,11 @@ SDIO, SATA0, PCIe 3.0, `pcie2x1l0`, HDMI0, DP1, eDP1 and DSI0 are disabled or un
 
 The vendor 5.10 and 6.1 trees retain the vendor media and accelerator nodes, including the LT6911UXC2 -> DPHY0 -> MIPI CSI2 -> RKCIF2 path. The 7.3 mainline tree uses its own bindings to explicitly enable all three RKNN NPU cores, RGA3/RGA2, VPU121, four VEPU121 JPEG encoders, RKVDEC0/1, AV1 decoding and their IOMMUs. LT6911UXC2 and its mainline VICAP graph are present, but UXC2 driver compatibility still needs validation.
 
+The factory DTB leaves the eDP0 controller enabled, but the physical BOM uses
+the DSI1/LT9211 path and has no eDP panel. Linux 7.3 and the vendor 6.1 tree
+updated on 2026-11-14 therefore disable eDP0, its VP2 input and its route so
+an absent panel cannot participate in DRM aggregation.
+
 ## Linux 7.3 Mainline Port
 
 `dts-7.3-linux/rk3588-really.dts` includes:
@@ -177,13 +197,24 @@ The vendor 5.10 and 6.1 trees retain the vendor media and accelerator nodes, inc
 - `rga3_core0/1`, dual-core RGA2, VPU121, four `vepu121_0..3` JPEG encoders, `vdec0/1` and AV1 decoding;
 - mainline VDENC/RKVDEC power-domain supplies from `vdd_vdenc_s0`;
 - LT9211 DSI-to-LVDS, GT9110 touch, HYM8563 RTC and ES8388 audio;
+- dual-link LT9211 LVDS with odd/even pixel channels, factory DSI
+  `BURST + LPM` flags and the optional board-level
+  `lontium,dsi-mode-flags` property;
+- an always-on 32.768 kHz `wifi-lpo` fixed clock so AP6275P Wi-Fi/BT probing
+  does not depend on HYM8563 probe success;
 - PWM2 fan, PWM6 eDP backlight and PWM12 LVDS backlight;
 - SARADC keys, thermal protection and fan cooling maps.
 
 ## Known Limitations
 
 1. Linux 7.3 enables the available mainline NPU, RGA, JPEG encoder, VPU decoder, RKVDEC and AV1 nodes. RK3588 RKCIF/RKISP capture nodes and standalone RKVENC device nodes are not provided by this mainline release.
-2. AP6275P wireless and IMX577 capture remain limited by mainline driver support. The built-in HDMI RX path is restored, and the LT6911UXC2 graph is restored, but Linux 7.3 only provides an LT6911UXE driver; UXC2 compatibility or a dedicated driver backport still needs validation.
-3. The eDP panel path depends on EDID. A panel without EDID needs explicit timings.
-4. LT9211 timings, Type-C/DP Alt Mode and external ES8388 amplifier controls still require hardware validation.
-5. The device tree describes kernel hardware only. Booting also requires a matching loader, U-Boot, memory initialization and root filesystem.
+2. The AP6275P PCIe device enumerates and the DTS no longer blocks it on HYM8563 probe. A full image with the matching module release still needs to validate actual Wi-Fi/BT probing.
+3. eDP0 is disabled because the production BOM has no eDP panel. If eDP is
+   enabled later, the panel still requires EDID or explicit timings.
+4. The internal display is dual-link VESA-24 LVDS. Configuring only one
+   link crops the desktop to half width and corrupts the pixel clock.
+   The vendor mode-3 channel-enable value (`0x855c = 0x07`) is applied by
+   the board kernel patch to remove residual pixel-column jitter.
+5. Type-C DP shares its high-speed lanes with USB3. DP 4K30 is validated in the two-lane configuration; 4K60 is not stable.
+6. HYM8563 and GT9110 intermittently fail to acknowledge I2C on cold boot, and the userspace late-bind can still fail.
+7. The device tree describes kernel hardware only. Booting also requires a matching loader, U-Boot, memory initialization and root filesystem.

@@ -4,6 +4,12 @@
 
 本仓库保存 Really TVI2340R RK3588 直播机的设备树逆向与移植结果。硬件事实以 Android 12 / vendor 5.10.110 系统提取的工厂 DTB 为准，并按 Android、vendor Linux 和 mainline Linux 三套启动语义分别维护。
 
+Linux 7.3 的当前板级改动和实测边界见
+[`dts-7.3-linux/FIXES.md`](dts-7.3-linux/FIXES.md)。
+
+vendor 6.1 的现有修复、7.3 回移项与明确不适用项见
+[`dts-6.1-linux/FIXES.md`](dts-6.1-linux/FIXES.md)。
+
 ## 版本目录
 
 | 目录 | 目标系统 | 主要差异 |
@@ -28,8 +34,8 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | 内存 | 工厂 DTS 标示为 LPDDR4 拓扑 |
 | 主存储 | 8 bit eMMC 5.1，HS400，不可移除 |
 | SD 卡 | 4 bit SDMMC，UHS SDR104，独立 3.3 V 供电控制 |
-| 内屏 | DSI1 → LT9211 → 24 bit LVDS，1920×1080 |
-| 备用内屏 | eDP0，EDID 面板链路 |
+| 内屏 | 15.6 吋竖屏；DSI1 4-lane → LT9211 → 双通道 odd/even 24 bit VESA LVDS。控制器扫描 1920×1080@60，桌面旋转后逻辑分辨率 1080×1920 |
+| 备用内屏 | eDP0；当前默认禁用，实际内屏走 DSI1/LT9211 |
 | 外部显示 | HDMI1、DP0（USB-C DP Alt Mode） |
 | 有线网络 | GMAC0，RGMII，PHY 地址 1 |
 | PCIe | PCIe 2.0 x1 lane 1 与 lane 2，两路均启用 |
@@ -40,7 +46,7 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | HDMI 输入 | RK3588 内置 HDMI RX，HPD/检测 GPIO4_C6；LT6911UXC2，I2C6 `0x2b` |
 | MIPI 摄像头 | IMX577，I2C4 `0x1a` |
 | 无线 | AP6275P，Wi-Fi + Bluetooth |
-| 风扇 | PWM2，40 kHz，反相输出 |
+| 风扇 | PWM2，周期 40000 ns（25 kHz），反相输出 |
 | 看门狗 | 内部 RK3588 DW watchdog 与外部 GPIO watchdog GPIO0_D3 均显式禁用 |
 
 ## 硬件拓扑
@@ -86,7 +92,13 @@ I2C6: LT6911UXC2 0x2b, HUSB311 0x4e
 VOP2 VP0 --> HDMI1 --> HDMI-A
 VOP2 VP1 --> DP0 --> USB-C DP Alt Mode
 VOP2 VP2 --> eDP0 --> eDP panel
-VOP2 VP3 --> DSI1 4-lane --> LT9211 --> LVDS 24-bit --> 1920x1080 panel
+VOP2 VP3 --> DSI1 4-lane --> LT9211 --> dual-link LVDS 24-bit
+                                              |
+                          controller scan 1920x1080
+                                              |
+                              rotate left -> 1080x1920
+                                              |
+                                  15.6-inch portrait panel
 ```
 
 HDMI 输入：
@@ -131,14 +143,14 @@ SATA0 / PCIe3 --> disabled
 | LT6911 reset | GPIO3_A7 | High | LT6911UXC2 `reset-gpios` |
 | LT6911 HPD control | GPIO2_C3 | High | LT6911UXC2 `hpd-ctl-gpios` |
 | LT6911 interrupt | GPIO1_C7 | Low | LT6911UXC2 interrupt |
-| PCIe lane 2 reset | GPIO3_C7 | High | `pcie2x1l2` |
+| PCIe lane 2 reset | GPIO3_B7 | High | AP6275P `pcie2x1l2` |
 | PCIe lane 1 reset | GPIO1_A7 | High | `pcie2x1l1` |
 | SD 卡电源 | GPIO4_C3 | High | `vcc_sd` |
-| Type-C VBUS enable | GPIO4_A1 | High | HUSB311 VBUS control |
-| USB3 5 V enable | GPIO4_C6 | High | `vcc5v0_USB30` |
+| Type-C VBUS enable | GPIO1_D1 | High | HUSB311 VBUS control |
+| USB-A host 5 V enable | GPIO3_A5 | High | `vcc5v0_host` |
 | eDP 背光 enable | GPIO4_B6 | High | PWM6 backlight enable |
-| 扬声器功放 enable | GPIO4_A2 | Low | ES8388 speaker amplifier |
-| 耳机功放 enable | GPIO4_A4 | High | ES8388 headphone amplifier |
+| 扬声器功放 enable | GPIO4_B2 | Low | ES8388 speaker amplifier |
+| 耳机功放 enable | GPIO4_B4 | High | ES8388 headphone amplifier |
 | 耳机检测 | GPIO4_B3 | High | ES8388 headphone detect |
 | 电源灯 | GPIO3_C0 | High | GPIO LED |
 
@@ -155,11 +167,13 @@ SATA0 / PCIe3 --> disabled
 
 | 功能 | 控制器 | 周期 / 极性 |
 | --- | --- | --- |
-| LVDS 背光 | PWM12 | 1 MHz，正相 |
-| eDP 背光 | PWM6 | 25 kHz，正相 |
-| 风扇 | PWM2 | 40 kHz，反相 |
+| LVDS 背光 | PWM12 | 1000000 ns（1 kHz），正相 |
+| eDP 背光 | PWM6 | 25000 ns（40 kHz），正相 |
+| 风扇 | PWM2 | 40000 ns（25 kHz），反相 |
 
-7.3 版本将风扇描述为标准 `pwm-fan`，冷却级数为 `0/76/153/204`，并保留 package thermal 的两级主动散热策略。
+7.3 和 6.1 均将风扇描述为标准 `pwm-fan`，冷却级数为
+`0/76/153/204`。7.3 使用 package thermal cooling map，6.1 使用
+vendor 的 `rockchip,temp-trips` 两档策略。
 
 ## 看门狗状态
 
@@ -189,6 +203,10 @@ RK3588 内部 DW watchdog `watchdog@feaf0000` 也按原厂状态在三套 DTS �
 
 5.10 与 6.1 版本保留 vendor 媒体和加速节点，并启用 LT6911UXC2 → DPHY0 → MIPI CSI2 → RKCIF2 采集链路。7.3 mainline 使用自身 binding，显式启用三核 RKNN NPU、RGA3/RGA2、VPU121、四核 VEPU121 JPEG 编码、RKVDEC0/1 和 AV1 解码及其 IOMMU；LT6911UXC2 已按 mainline VICAP graph 写入设备树，但该版本内核仍需确认 UXC2 驱动兼容性。
 
+工厂 DTB 虽保留 eDP0 控制器状态，实际 BOM 的内屏走 DSI1/LT9211，
+没有 eDP 面板。7.3 与 2026-11-14 之后的 6.1 均显式关闭 eDP0
+数据通路，避免无面板链路参与 DRM 聚合。
+
 ## Linux 7.3 移植内容
 
 `dts-7.3-linux/rk3588-really.dts` 已按 mainline binding 重建以下部分：
@@ -206,13 +224,20 @@ RK3588 内部 DW watchdog `watchdog@feaf0000` 也按原厂状态在三套 DTS �
 - `rga3_core0/1`、双核 RGA2、VPU121、`vepu121_0..3` JPEG 编码、`vdec0/1` 和 AV1 解码；
 - VDENC/RKVDEC 电源域与 `vdd_vdenc_s0` 的 mainline 供电绑定；
 - LT9211 DSI→LVDS、GT9110 触摸、HYM8563 RTC、ES8388 声卡；
+- LT9211 双通道 odd/even LVDS、原厂 DSI `BURST + LPM` flags 和板级可配置
+  `lontium,dsi-mode-flags`；
+- AP6275P 使用常开 32.768 kHz `wifi-lpo` fixed-clock，避免 Wi‑Fi/BT
+  被 HYM8563 的 probe 状态阻塞；
 - PWM2 风扇、PWM6 eDP 背光、PWM12 LVDS 背光；
 - SARADC 与 GPIO 按键、温度保护和风扇冷却映射。
 
 ## 已知限制
 
 1. 7.3 已启用 mainline 提供的 NPU、RGA、JPEG 编码、VPU 解码、RKVDEC 和 AV1 节点；RKCIF/RKISP 采集链与独立 RKVENC 节点在该版本的 RK3588 DTSI 中尚未提供。
-2. AP6275P 无线和 IMX577 摄像头仍受 mainline 驱动支持范围限制；内置 HDMI RX 已恢复，LT6911UXC2 DTS graph 已恢复，但 Linux 7.3 仅提供 LT6911UXE 驱动，仍需验证兼容性或回移专用驱动。
-3. eDP 面板依赖 EDID；若实际屏体没有 EDID，需要在 `aux-bus/panel` 内补充面板时序。
-4. LT9211 输出时序、Type-C/DP Alt Mode 和 ES8388 外部功放控制仍需实机验证。
-5. 设备树只描述内核侧硬件，正式启动仍依赖匹配的 loader、U-Boot、内存初始化和根文件系统。
+2. AP6275P PCIe 设备可枚举，DTS 已解除对 HYM8563 probe 的强依赖；仍需用模块版本匹配的完整镜像验证 Wi‑Fi/BT 实际 probe。
+3. eDP0 当前因无实际面板而禁用；若以后启用 eDP，面板仍依赖 EDID，
+   无 EDID 时需要在 `aux-bus/panel` 内补充时序。
+4. 内屏是双通道 VESA-24 LVDS。只配一条 LVDS link 会把桌面裁成半幅并使像素时基错乱；原厂 mode 3 的 `0x855c = 0x07` 通道使能已由板级内核补丁补齐。
+5. Type-C DP 与 USB3 共用 Type-C 高速 lane。当前双 lane 配置下 DP 4K30 已验证，4K60 不稳定。
+6. HYM8563、GT9110 在部分冷启动中不响应 I2C，late-bind 仍可能失败。
+7. 设备树只描述内核侧硬件，正式启动仍依赖匹配的 loader、U-Boot、内存初始化和根文件系统。
