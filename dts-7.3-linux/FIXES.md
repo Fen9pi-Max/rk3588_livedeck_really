@@ -70,8 +70,11 @@ correctly packaged full image. A hand-built kernel must retain the
   panel sink exposes the matching `dual-lvds-odd-pixels` and
   `dual-lvds-even-pixels` properties.
 - The LT9211/DSI controller scans 1920x1080@60 at 148.5 MHz; the physical
-  15.6-inch panel is mounted portrait and the compositor rotates the output
-  left to a 1080x1920 logical desktop.
+  15.6-inch panel is mounted portrait.  The panel node declares
+  `rotation = <270>` so DRM reports the correct portrait orientation and
+  Mutter presents a 1080x1920 logical desktop.
+- The early kernel console does not consume panel orientation, so board
+  bootargs add `fbcon=rotate:3` to rotate fbcon as well.
 - LVDS panel supply enable is GPIO3_B6, active high and always-on.
 - LVDS backlight enable is GPIO3_B4; PWM is PWM12.
 - LT9211 optional DSI mode flags are board-configurable.

@@ -34,7 +34,7 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | 内存 | 工厂 DTS 标示为 LPDDR4 拓扑 |
 | 主存储 | 8 bit eMMC 5.1，HS400，不可移除 |
 | SD 卡 | 4 bit SDMMC，UHS SDR104，独立 3.3 V 供电控制 |
-| 内屏 | 15.6 吋竖屏；DSI1 4-lane → LT9211 → 双通道 odd/even 24 bit VESA LVDS。控制器扫描 1920×1080@60，桌面旋转后逻辑分辨率 1080×1920 |
+| 内屏 | 15.6 吋竖屏；DSI1 4-lane → LT9211 → 双通道 odd/even 24 bit VESA LVDS。控制器扫描 1920×1080@60，DT 提供 270° 方向，桌面和 fbcon 均呈 1080×1920 竖屏 |
 | 备用内屏 | eDP0；当前默认禁用，实际内屏走 DSI1/LT9211 |
 | 外部显示 | HDMI1、DP0（USB-C DP Alt Mode） |
 | 有线网络 | GMAC0，RGMII，PHY 地址 1 |
@@ -96,7 +96,7 @@ VOP2 VP3 --> DSI1 4-lane --> LT9211 --> dual-link LVDS 24-bit
                                               |
                           controller scan 1920x1080
                                               |
-                              rotate left -> 1080x1920
+                       DT orientation 270 -> 1080x1920
                                               |
                                   15.6-inch portrait panel
 ```
