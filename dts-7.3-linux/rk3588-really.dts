@@ -110,7 +110,7 @@
 		pinctrl-0 = <&edp_backlight_en>;
 		power-supply = <&vcc_3v3_s3>;
 		pwms = <&pwm6 0 25000 0>;
-		status = "disabled";
+		status = "okay";
 	};
 
 	chosen {
@@ -211,6 +211,14 @@
 		status = "okay";
 	};
 
+	typec_extcon_bridge: typec-extcon {
+		compatible = "linux,typec-extcon-bridge";
+		mode-switch;
+		orientation-switch;
+		usb-role-switch;
+		svid = /bits/ 16 <0xff01>;
+	};
+
 	lvds_pwr_en: regulator-lvds-pwr-en {
 		compatible = "regulator-fixed";
 		enable-active-high;
@@ -218,6 +226,17 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&lvds_pwren_pin>;
 		regulator-name = "lvds_pwr_en";
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	mipi_cam_pwen: regulator-mipi-cam-pwen {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio1 RK_PA2 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&camera_pwen>;
+		regulator-name = "mipi_cam_pwen";
 		regulator-always-on;
 		regulator-boot-on;
 	};
@@ -559,7 +578,43 @@
 };
 
 &edp0 {
-	status = "disabled";
+	/*
+	 * eDP0 is a factory-supported optional internal panel route on VP2.
+	 * Keep HPD/AUX dynamic so an unpopulated assembly is reported as
+	 * disconnected rather than as a phantom connected panel.
+	 */
+	status = "okay";
+
+	aux-bus {
+		panel {
+			compatible = "edp-panel";
+			backlight = <&backlight_edp>;
+			enable-gpios = <&gpio1 RK_PD0 GPIO_ACTIVE_HIGH>;
+			hpd-absent-delay-ms = <120>;
+			power-supply = <&vcc_3v3_s3>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&edp_panel_en>;
+			rotation = <270>;
+
+			port {
+				panel_in_edp: endpoint {
+					remote-endpoint = <&edp0_out_panel>;
+				};
+			};
+		};
+	};
+};
+
+&edp0_in {
+	edp0_in_vp2: endpoint {
+		remote-endpoint = <&vp2_out_edp0>;
+	};
+};
+
+&edp0_out {
+	edp0_out_panel: endpoint {
+		remote-endpoint = <&panel_in_edp>;
+	};
 };
 
 &gmac0 {
@@ -747,15 +802,15 @@
 		reg = <0x14>;
 		interrupt-parent = <&gpio4>;
 		interrupts = <RK_PB0 IRQ_TYPE_LEVEL_LOW>;
-		reset-gpios = <&gpio1 RK_PD3 GPIO_ACTIVE_LOW>;
-		irq-gpios = <&gpio4 RK_PB0 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&gpio1 RK_PD3 GPIO_ACTIVE_HIGH>;
+		irq-gpios = <&gpio4 RK_PB0 GPIO_ACTIVE_HIGH>;
 		AVDD28-supply = <&vcc_3v3_s3>;
 		VDDIO-supply = <&vcc_1v8_s3>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&gt9xx_gpios>;
 		status = "okay";
-		touchscreen-size-x = <1920>;
-		touchscreen-size-y = <1080>;
+		touchscreen-size-x = <1080>;
+		touchscreen-size-y = <1920>;
 	};
 
 	hym8563: rtc@51 {
@@ -777,16 +832,6 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c6m0_xfer>;
 	status = "okay";
-
-	accelerometer@18 {
-		compatible = "sensortek,stk8ba50";
-		reg = <0x18>;
-		interrupt-parent = <&gpio4>;
-		interrupts = <RK_PB7 IRQ_TYPE_EDGE_RISING>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&stk8baxx_irq>;
-		status = "okay";
-	};
 
 	lt6911: bridge@2b {
 		compatible = "lontium,lt6911uxc2";
@@ -822,6 +867,7 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&usbc0_int>;
 		vbus-supply = <&vbus5v0_typec>;
+		extcon = <&typec_extcon_bridge>;
 		status = "okay";
 
 		connector {
@@ -1008,9 +1054,9 @@
 };
 
 &pinctrl {
-	accelerometer {
-		stk8baxx_irq: stk8baxx-irq {
-			rockchip,pins = <4 RK_PB7 RK_FUNC_GPIO &pcfg_pull_none>;
+	camera {
+		camera_pwen: camera-pwen {
+			rockchip,pins = <1 RK_PA2 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
 
@@ -1078,6 +1124,10 @@
 	};
 
 	edp {
+		edp_panel_en: edp-panel-en {
+			rockchip,pins = <1 RK_PD0 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+
 		edp_backlight_en: edp-backlight-en {
 			rockchip,pins = <4 RK_PB6 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
@@ -1657,6 +1707,13 @@
 	vp1_out_dp0: endpoint@a {
 		reg = <ROCKCHIP_VOP2_EP_DP0>;
 		remote-endpoint = <&dp0_in_vp1>;
+	};
+};
+
+&vp2 {
+	vp2_out_edp0: endpoint@ROCKCHIP_VOP2_EP_EDP0 {
+		reg = <ROCKCHIP_VOP2_EP_EDP0>;
+		remote-endpoint = <&edp0_in_vp2>;
 	};
 };
 

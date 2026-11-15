@@ -41,8 +41,9 @@ controller scan is 1920x1080; desktop presentation must rotate left to
   Alt Mode mux、VBUS GPIO1_D1，以及 USB-A host 5 V GPIO3_A5。
 - Type-C DP 使用双 lane，`rockchip,dp-lane-mux = <2 3>`，保留与
   USB3 共用高速 lane 的已验证 4K30 配置。
-- 实际内屏走 DSI1/LT9211，板级不存在 eDP 面板，因此显式禁用
-  `edp0`、`edp0_in_vp2` 和 `route_edp0`。
+- 板级同时定义两条可选内屏路径：当前 BOM 的 DSI1/LT9211/LVDS，
+  以及可选的 VP2/eDP0。默认镜像显式禁用 `edp0`、`edp0_in_vp2`
+  和 `route_edp0`，避免未装配面板进入 DRM 聚合。
 - LT9211 输出图已同步为 dual-link：port 2 为 odd pixels，port 3 为
   even pixels，panel-lvds 使用两个对应的 sink port。vendor 6.1 当前
   没有 LT9211 驱动，节点仍保持 disabled，但拓扑已与 7.3 一致。

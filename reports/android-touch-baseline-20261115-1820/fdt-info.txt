@@ -1,0 +1,1 @@
+-r-------- 1 root root 274560 2021-01-01 20:10 /sys/firmware/fdt

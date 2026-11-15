@@ -4,7 +4,7 @@ Author: Codex (GPT-5); executor: user
 
 Generated: 2026-11-14T21:50:00+08:00
 
-Last updated: 2026-11-15T00:05:00+08:00
+Last updated: 2026-11-15T21:45:00+08:00
 
 Context: Board-level hardware enablement and validation on the Really
 TVI2340R, starting from the reconstructed vendor DTB and the mainline
@@ -16,6 +16,10 @@ Linux 7.3.y rockchip64.
 Environment: Really TVI2340R, RK3588, eMMC boot, 15.6-inch portrait
 dual-link LVDS panel behind a Lontium LT9211, HDMI output, Type-C DP
 Alt Mode, AP6275P Wi-Fi/Bluetooth and ES8388 audio.
+
+The board also defines eDP0 as an optional factory-supported internal
+panel route. The default image keeps the fitted DSI1/LT9211/LVDS path;
+the same DTS also describes VP2/eDP0 with normal HPD/AUX detection.
 
 ## Integrated board changes
 
@@ -50,7 +54,10 @@ The play/pause ADC input registers as a second `adc-keys` input device.
 - DP uses two Type-C lanes while USB3 uses the other two lanes.
 
 Validated result: Type-C USB2 hub and USB-A keyboard enumerate. Type-C DP
-output works at 3840x2160@30.
+reached 3840x2160@30 in an earlier test configuration, but this is not a
+closed result for the current baseline. Current runs repeatedly leave
+`DP-1` disconnected and cycle the HUSB311 partner through
+`SRC_READY -> disconnected -> TOGGLING`.
 
 ### PCIe, Wi-Fi and Bluetooth
 
@@ -113,20 +120,43 @@ correctly packaged full image. A hand-built kernel must retain the
   channel-enable mask through
   `0015-lt9211-enable-dual-link-lvds-channels.patch`.
 
-Validated result: HDMI and Type-C DP output work. Type-C DP 4K30 is stable;
-4K60 is not reliable with the two-lane USB3-sharing configuration.
+Validated result: HDMI output works. Type-C DP previously reached 4K30, but
+the current final baseline does not maintain a Type-C partner/Alt Mode
+connection. DP must be documented as open until a repeated cold-boot and
+hot-plug regression passes.
+
+### Optional internal eDP panel
+
+- Factory data defines eDP0 on VP2, with PWM6 backlight, backlight enable
+  GPIO4_B6 and panel enable GPIO1_D0.
+- The production LVDS path remains DSI1 on VP3 through LT9211.
+- The same board DTS enables eDP0 and exposes an `edp-panel` on its AUX
+  bus. It deliberately uses normal HPD/AUX detection without
+  `force-hpd` or `no-hpd`, so an unpopulated eDP assembly is reported as
+  disconnected instead of creating a phantom display.
+- The panel description assumes EDID. A panel without EDID needs its exact
+  model, power sequence and timing.
+- No eDP panel has yet been fitted for physical validation.
 
 ### Touch and RTC
 
-- GT9110: I2C4 `0x14`, reset GPIO1_D3 active low, IRQ GPIO4_B0 active low,
-  matching the factory DTB. This polarity correction alone does not resolve
-  the current `0x8140` I2C `-6` failure.
+- GT9110: I2C4 `0x14`, reset GPIO1_D3, IRQ GPIO4_B0. The factory DTB uses
+  active-low polarity; the current experimental DTS was changed to
+  active-high while comparing probe behavior. Both polarities have been
+  tested and neither resolves the current I2C failure.
 - HYM8563: I2C4 `0x51`, IRQ GPIO0_B0.
 - Userspace late-bind services are installed for both devices because they
   can miss the first built-in probe during cold boot.
 
-Current cold boot still occasionally leaves both devices without an I2C ACK;
-the late-bind service then fails. This remains open.
+Current live result (2026-11-15T21:30+08:00): there is no Goodix input device,
+I2C4 `0x14` and `0x51` do not acknowledge, and neither device has a bound
+driver. The bus controller itself is alive because LT9211 at `0x2d` remains
+bound. Android 12 has a working `goodix-ts` device with raw range
+`0..1080 x 0..1920`, proving the panel hardware and wiring are valid.
+
+Already tested without success: I2C4 at 100 kHz and 400 kHz; reset/IRQ
+ACTIVE_LOW and ACTIVE_HIGH; pull-up and pull-none; late-bind; and the
+factory `mipi_cam_pwen` supply enable. The root cause is still open.
 
 ### Ethernet, fans, keys and power
 
@@ -175,14 +205,15 @@ click. The click is more likely ES8388/amplifier power-on or mute timing.
 3. Panel-side 12 V, backlight power and LVDS common-mode/swing have not been
    measured with a meter or oscilloscope.
 4. GT9110 and HYM8563 remain unresolved on mainline. The current system does
-   not create a Goodix input device and still reports
-   `Goodix-TS 4-0014: ... 0x8140: -6`. Factory polarity/pinctrl alignment did
-   not fix the failure. An Android root baseline is the next comparison step.
+   not create a Goodix input device, I2C4 `0x14` and `0x51` do not ACK, and
+   late-bind still fails. Android 12 provides a working touch baseline, so
+   continue with the mainline I2C4 power/enable/controller comparison.
 5. HDMI output can remain logically connected after cable removal, causing
    EDID I2C retries and a compositor stall. The image currently starts HDMI
    disabled by default.
-6. Type-C DP and USB3 cannot both have four lanes. Keep DP capped at 4K30 for
-   the two-lane configuration.
+6. Type-C DP is open, not merely limited to 4K30. Current `DP-1` is
+   disconnected and the HUSB311 Type-C partner repeatedly detaches. Previous
+   two-lane 4K30 success must not be used as a final validation claim.
 7. TF boot is still unresolved at U-Boot runtime despite correct aliases and
    SD regulators. See `../u-boot-mainline/TF-BOOT-STATUS.md`; do not trust the
    old claim that TF boot already works.

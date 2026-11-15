@@ -1,0 +1,9 @@
+lrwxrwxrwx 1 root root 0 2026-11-15 18:24 /sys/bus/i2c/devices/4-0014 -> ../../../devices/platform/feac0000.i2c/i2c-4/4-0014
+gt9xx
+DRIVER=Goodix-TS
+OF_NAME=gt9xx
+OF_FULLNAME=/i2c@feac0000/gt9xx@14
+OF_COMPATIBLE_0=goodix,gt9xx
+OF_COMPATIBLE_N=1
+MODALIAS=of:Ngt9xxT(null)Cgoodix,gt9xx
+/sys/firmware/devicetree/base/i2c@feac0000/gt9xx@14

@@ -13,6 +13,9 @@ Linux 7.3 的当前板级改动和实测边界见
 vendor 6.1 的现有修复、7.3 回移项与明确不适用项见
 [`dts-6.1-linux/FIXES.md`](dts-6.1-linux/FIXES.md)。
 
+2026-11-15 的 mainline 实机未闭环问题、现场日志和已排除项见
+[`reports/mainline-open-issues-20261115-2130/README.md`](reports/mainline-open-issues-20261115-2130/README.md)。
+
 ## 版本目录
 
 | 目录 | 目标系统 | 主要差异 |
@@ -38,8 +41,8 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | 主存储 | 8 bit eMMC 5.1，HS400，不可移除 |
 | SD 卡 | 4 bit SDMMC，UHS SDR104，独立 3.3 V 供电控制 |
 | 内屏 | 15.6 吋竖屏；DSI1 4-lane → LT9211 → 双通道 odd/even 24 bit VESA LVDS。控制器扫描 1920×1080@60，DT 提供 270° 方向，桌面和 fbcon 均呈 1080×1920 竖屏 |
-| 备用内屏 | eDP0；当前默认禁用，实际内屏走 DSI1/LT9211 |
-| 外部显示 | HDMI1、DP0（USB-C DP Alt Mode） |
+| 备用内屏 | eDP0 是板级支持的可选内屏装配路径；同一 DTS 同时描述 VP2/eDP0，HPD/AUX 动态探测。当前 LVDS 面板与可选 eDP 面板互不伪造连接状态 |
+| 外部显示 | HDMI1、DP0（USB-C DP Alt Mode）；DP0 最终基线尚未稳定闭环 |
 | 有线网络 | GMAC0，RGMII，PHY 地址 1 |
 | PCIe | PCIe 2.0 x1 lane 1 与 lane 2，两路均启用 |
 | USB | USB3 OTG0、USB3 Host1、两路 USB2 Host、HUSB311 Type-C PD |
@@ -51,6 +54,24 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | 无线 | AP6275P，Wi-Fi + Bluetooth |
 | 风扇 | PWM2，周期 40000 ns（25 kHz），反相输出 |
 | 看门狗 | 内部 RK3588 DW watchdog 与外部 GPIO watchdog GPIO0_D3 均显式禁用 |
+
+## Mainline 7.3 当前实测状态
+
+截至 `2026-11-15T21:30:00+08:00`，运行现场为
+`7.3.4-edge-rockchip64 #61`，运行 DTB SHA256
+`98cb2541226cdc34ff269040f4b99cc30c21e159b15545d6709ef5688f4f9b84`。
+
+| 功能 | 当前状态 |
+| --- | --- |
+| LVDS 内屏 | `LVDS-1 connected`，双链路画面正常 |
+| HDMI OUT | 当前未接显示器，`HDMI-A-1 disconnected` |
+| USB-C DP | **未闭环**。当前 `DP-1 disconnected`，Type-C partner 不存在；历史版本抓到过 4K30，当前基线不能复现稳定连接 |
+| GT9110 触控 | **未工作**。无 Goodix 输入设备，I2C4 `0x14` 不应答 |
+| HYM8563 RTC | **未工作**。I2C4 `0x51` 不应答 |
+| I2C4 控制器 | LT9211 `0x2d` 由驱动占用，说明总线本身并非完全失效；`0x14/0x51` 是当前共同异常点 |
+
+Android 12 下触控正常，坐标范围是 `1080x1920`，因此触控模组、排线和
+Android 软件链路本身正常；问题限定在 mainline 的 I2C4/设备初始化路径。
 
 ## 硬件拓扑
 
@@ -94,7 +115,7 @@ I2C6: LT6911UXC2 0x2b, HUSB311 0x4e
 ```text
 VOP2 VP0 --> HDMI1 --> HDMI-A
 VOP2 VP1 --> DP0 --> USB-C DP Alt Mode
-VOP2 VP2 --> eDP0 --> eDP panel
+VOP2 VP2 --> eDP0 --> optional internal eDP panel
 VOP2 VP3 --> DSI1 4-lane --> LT9211 --> dual-link LVDS 24-bit
                                               |
                           controller scan 1920x1080
@@ -157,6 +178,10 @@ SATA0 / PCIe3 --> disabled
 | 耳机检测 | GPIO4_B3 | High | ES8388 headphone detect |
 | 电源灯 | GPIO3_C0 | High | GPIO LED |
 
+触控 GPIO 极性表保留工厂语义。当前 mainline 实验 DTS 为了 probe 对比
+曾使用 ACTIVE_HIGH；LOW/HIGH、pull-up/pull-none 都已实测，均未修复
+I2C ENXIO，因此不能把极性当成最终结论。
+
 按键使用 SARADC1：
 
 | 阈值 | 功能 |
@@ -206,9 +231,11 @@ RK3588 内部 DW watchdog `watchdog@feaf0000` 也按原厂状态在三套 DTS �
 
 5.10 与 6.1 版本保留 vendor 媒体和加速节点，并启用 LT6911UXC2 → DPHY0 → MIPI CSI2 → RKCIF2 采集链路。7.3 mainline 使用自身 binding，显式启用三核 RKNN NPU、RGA3/RGA2、VPU121、四核 VEPU121 JPEG 编码、RKVDEC0/1 和 AV1 解码及其 IOMMU；LT6911UXC2 已按 mainline VICAP graph 写入设备树，但该版本内核仍需确认 UXC2 驱动兼容性。
 
-工厂 DTB 虽保留 eDP0 控制器状态，实际 BOM 的内屏走 DSI1/LT9211，
-没有 eDP 面板。7.3 与 2026-11-14 之后的 6.1 均显式关闭 eDP0
-数据通路，避免无面板链路参与 DRM 聚合。
+工厂 DTB 同时描述两条可选内屏路径：DSI1/LT9211/LVDS 与 VP2/eDP0。
+当前 BOM 默认装配 LVDS 方案。7.3 在同一份 DTS 中保留完整的 eDP0、
+VP2、PWM6 背光和面板 enable 描述，但不设置 `force-hpd`/`no-hpd`：
+未装配 eDP 面板时由 HPD/AUX 报为 disconnected，装配面板后正常 probe。
+6.1 当前仍按既有 vendor 基线默认关闭 eDP；迁移到同一模型前需实机确认。
 
 ## Linux 7.3 移植内容
 
@@ -238,9 +265,15 @@ RK3588 内部 DW watchdog `watchdog@feaf0000` 也按原厂状态在三套 DTS �
 
 1. 7.3 已启用 mainline 提供的 NPU、RGA、JPEG 编码、VPU 解码、RKVDEC 和 AV1 节点；RKCIF/RKISP 采集链与独立 RKVENC 节点在该版本的 RK3588 DTSI 中尚未提供。
 2. AP6275P PCIe 设备可枚举，DTS 已解除对 HYM8563 probe 的强依赖；仍需用模块版本匹配的完整镜像验证 Wi‑Fi/BT 实际 probe。
-3. eDP0 当前因无实际面板而禁用；若以后启用 eDP，面板仍依赖 EDID，
-   无 EDID 时需要在 `aux-bus/panel` 内补充时序。
+3. eDP0 是可选内屏路径，7.3 使用 HPD/AUX 动态探测且不强制 HPD。
+   当前描述假定装配面板提供 EDID；无 EDID 的面板必须补充准确型号
+   和时序。若实测板级没有把 eDP HPD 接到控制器，再单独增加 HPD GPIO
+   或受控的 `no-hpd` 回退，不能默认伪造已连接。
 4. 内屏是双通道 VESA-24 LVDS。只配一条 LVDS link 会把桌面裁成半幅并使像素时基错乱；原厂 mode 3 的 `0x855c = 0x07` 通道使能已由板级内核补丁补齐。
-5. Type-C DP 与 USB3 共用 Type-C 高速 lane。当前双 lane 配置下 DP 4K30 已验证，4K60 不稳定。
-6. HYM8563、GT9110 在部分冷启动中不响应 I2C，late-bind 仍可能失败。
+5. Type-C DP 未闭环。历史双 lane 配置曾验证 4K30，但当前最终基线在
+   Type-C partner/Alt Mode 阶段反复 attach/detach，`DP-1` 常保持
+   `disconnected`。不能仅凭 DTS 中仍存在 `<2 3>` lane mux 就宣称可用。
+6. GT9110 和 HYM8563 均未工作。当前运行态没有 Goodix 输入设备，
+   I2C4 `0x14`、`0x51` 都不应答；100/400 kHz、两种 GPIO 极性、
+   pull-up/pull-none 和 late-bind 均未解决。
 7. 设备树只描述内核侧硬件，正式启动仍依赖匹配的 loader、U-Boot、内存初始化和根文件系统。

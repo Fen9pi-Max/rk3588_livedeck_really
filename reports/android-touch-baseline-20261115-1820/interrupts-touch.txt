@@ -1,0 +1,2 @@
+ 95:       1590          0          0          0          0          0          0          0     GICv3 353 Level     feac0000.i2c
+149:        777          0          0          0          0          1          0          0  rockchip_gpio_irq   8 Edge      gt9xx

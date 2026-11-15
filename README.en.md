@@ -41,8 +41,8 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | Primary storage | 8-bit eMMC 5.1, HS400, non-removable |
 | SD | 4-bit SDMMC, UHS SDR104, switchable 3.3 V supply |
 | Internal panel | 15.6-inch portrait; DSI1 4-lane -> LT9211 -> dual-link odd/even 24-bit VESA LVDS. The controller scans 1920x1080@60 and the desktop rotates it to a 1080x1920 logical display |
-| Alternate internal panel | eDP0; disabled by default, the physical panel uses DSI1/LT9211 |
-| External display | HDMI1 and DP0 over USB-C Alt Mode |
+| Alternate internal panel | eDP0 is a supported optional internal-panel route; the current BOM uses DSI1/LT9211 |
+| External display | HDMI1 and DP0 over USB-C Alt Mode; the final DP0 baseline is not closed |
 | Ethernet | GMAC0, RGMII, PHY address 1 |
 | PCIe | PCIe 2.0 x1 lane 1 and lane 2 |
 | USB | USB3 OTG0, USB3 Host1, two USB2 hosts, HUSB311 Type-C PD |
@@ -54,6 +54,27 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | Wireless | AP6275P Wi-Fi and Bluetooth |
 | Fan | PWM2, 40000 ns period (25 kHz), inverted output |
 | Watchdog | Internal RK3588 DW watchdog and external GPIO0_D3 watchdog are both explicitly disabled |
+
+## Current Mainline 7.3 Runtime Status
+
+As of `2026-11-15T21:30:00+08:00`, the live system runs
+`7.3.4-edge-rockchip64 #61` with DTB SHA256
+`98cb2541226cdc34ff269040f4b99cc30c21e159b15545d6709ef5688f4f9b84`.
+
+- LVDS remains connected and functional.
+- USB-C DP is not closed. The current `DP-1` state is disconnected, no
+  Type-C partner is present, and previous testing showed repeated
+  HUSB311/RT1711H attach/detach cycles. A historical 4K30 success exists
+  but is not reproducible on the final baseline.
+- Goodix GT9110 is not present as an input device and I2C4 address `0x14`
+  does not acknowledge.
+- HYM8563 does not acknowledge at I2C4 address `0x51`.
+- The I2C4 controller itself is alive: LT9211 at `0x2d` is bound by its
+  driver. Android 12 proves that the GT9110 hardware and panel wiring work.
+
+See
+[`reports/mainline-open-issues-20261115-2130/README.md`](reports/mainline-open-issues-20261115-2130/README.md)
+for the captured evidence and rejected configurations.
 
 ## Hardware Topology
 
@@ -150,6 +171,11 @@ SATA0 / PCIe3 -> disabled
 | Headphone amplifier enable | GPIO4_B4 | High | ES8388 headphone path |
 | Power LED | GPIO3_C0 | High | GPIO LED |
 
+The GPIO table records factory polarity intent. The current mainline
+experimental DTS has also tested ACTIVE_HIGH for GT9110 reset/IRQ.
+LOW/HIGH and pull-up/pull-none were all tested without fixing the I2C
+ENXIO failure, so polarity is not a final conclusion.
+
 ## PWM and Thermal Control
 
 | Function | Controller | Timing |
@@ -180,10 +206,10 @@ SDIO, SATA0, PCIe 3.0, `pcie2x1l0`, HDMI0, DP1, eDP1 and DSI0 are disabled or un
 
 The vendor 5.10 and 6.1 trees retain the vendor media and accelerator nodes, including the LT6911UXC2 -> DPHY0 -> MIPI CSI2 -> RKCIF2 path. The 7.3 mainline tree uses its own bindings to explicitly enable all three RKNN NPU cores, RGA3/RGA2, VPU121, four VEPU121 JPEG encoders, RKVDEC0/1, AV1 decoding and their IOMMUs. LT6911UXC2 and its mainline VICAP graph are present, but UXC2 driver compatibility still needs validation.
 
-The factory DTB leaves the eDP0 controller enabled, but the physical BOM uses
-the DSI1/LT9211 path and has no eDP panel. Linux 7.3 and the vendor 6.1 tree
-updated on 2026-11-14 therefore disable eDP0, its VP2 input and its route so
-an absent panel cannot participate in DRM aggregation.
+The factory DTB describes both alternative internal-panel paths. The current
+BOM uses DSI1/LT9211/LVDS. Linux 7.3 also describes the optional VP2/eDP0
+route with normal HPD/AUX detection and no forced HPD. Vendor 6.1 remains on
+its existing disabled-eDP baseline until that model is validated.
 
 ## Linux 7.3 Mainline Port
 
@@ -214,12 +240,17 @@ an absent panel cannot participate in DRM aggregation.
 
 1. Linux 7.3 enables the available mainline NPU, RGA, JPEG encoder, VPU decoder, RKVDEC and AV1 nodes. RK3588 RKCIF/RKISP capture nodes and standalone RKVENC device nodes are not provided by this mainline release.
 2. The AP6275P PCIe device enumerates and the DTS no longer blocks it on HYM8563 probe. A full image with the matching module release still needs to validate actual Wi-Fi/BT probing.
-3. eDP0 is disabled because the production BOM has no eDP panel. If eDP is
-   enabled later, the panel still requires EDID or explicit timings.
+3. eDP0 is an optional internal-panel path. Linux 7.3 uses normal HPD/AUX
+   detection without forcing HPD. The panel description assumes EDID;
+   panels without EDID need explicit identification and timings.
 4. The internal display is dual-link VESA-24 LVDS. Configuring only one
    link crops the desktop to half width and corrupts the pixel clock.
    The vendor mode-3 channel-enable value (`0x855c = 0x07`) is applied by
    the board kernel patch to remove residual pixel-column jitter.
-5. Type-C DP shares its high-speed lanes with USB3. DP 4K30 is validated in the two-lane configuration; 4K60 is not stable.
-6. HYM8563 and GT9110 intermittently fail to acknowledge I2C on cold boot, and the userspace late-bind can still fail.
+5. Type-C DP is not closed. A previous two-lane configuration produced
+   4K30, but the final baseline repeatedly loses the Type-C partner and
+   leaves `DP-1` disconnected.
+6. HYM8563 and GT9110 are not working on mainline. Neither address
+   acknowledges on I2C4. Frequency, GPIO polarity, pull mode and
+   late-bind variations have not fixed the failure.
 7. The device tree describes kernel hardware only. Booting also requires a matching loader, U-Boot, memory initialization and root filesystem.

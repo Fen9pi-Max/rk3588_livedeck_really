@@ -530,7 +530,10 @@
 };
 
 &edp0 {
-	/* There is no eDP panel; the internal display is DSI1 -> LT9211. */
+	/*
+	 * eDP0 is the optional factory-supported internal panel route.
+	 * This configuration keeps the fitted DSI1 -> LT9211 panel active.
+	 */
 	status = "disabled";
 };
 

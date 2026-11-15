@@ -2,11 +2,12 @@
 
 - 作者：OpenAI Codex（GPT-5），执行端：user
 - 生成时间：2026-11-15T18:10:00+08:00
+- 最后更新：2026-11-15T21:45:00+08:00
 - 背景：Really TVI2340R 已完成 mainline 7.3 的主要板级 bring-up，但
-  TF 启动、GT9110 触控和 HYM8563 RTC 仍未闭环；群友可接串口继续排查。
+  TF 启动、USB-C DP、GT9110 触控和 HYM8563 RTC 仍未闭环。
 - 适用构建分支：`/home/user/github/build`，`main`，Armbian edge/resolute
 - 适用内核：`7.3.4-edge-rockchip64`
-- 运行设备：Really TVI2340R，RK3588，`192.168.3.250`
+- 运行设备：Really TVI2340R，RK3588，`192.168.3.233`
 - 串口：UART2 M0，`1500000 8N1`
 - 设备 DTS 基线：
   `/home/user/device/rk3588-really/rk3588_livedeck_really/dts-7.3-linux/rk3588-really.dts`
@@ -17,18 +18,24 @@
 
 ---
 
-## 1. 接手前必须知道的五件事
+## 1. 接手前必须知道的七件事
 
 1. **TF 启动没有完成。** Linux 能看到 TF 卡不等于 U-Boot 能初始化它。当前
    U-Boot 对 TF 的 `mmc_init()` 仍为 `-EIO`。
-2. **GT9110 和 HYM8563 当前都没有可靠工作。** GT9110 不在输入设备列表中；
+2. **USB-C DP 当前没有闭环。** `DP-1 disconnected`，Type-C partner
+   不稳定并在 PD/VDM 完成后反复 detach。历史上曾抓到 4K30，不能据此
+   宣告当前镜像已修复。
+3. **GT9110 和 HYM8563 当前都没有可靠工作。** GT9110 不在输入设备列表中；
    I2C4 上 `4-0014` 读取 `0x8140` 持续返回 `-ENXIO`。
-3. **USB 相机默认由虚拟 PipeWire 节点提供。** 原 UVC 节点被 WirePlumber
+4. **USB 相机默认由虚拟 PipeWire 节点提供。** 原 UVC 节点被 WirePlumber
    隐藏，直接用 `snapshot` 启动会显示 “No camera Found”。必须通过桌面
    图标或 `/usr/local/bin/really-camera-open` 启动。
-4. **加速度计硬件存在且驱动可用。** STK8BAXX 位于 I2C6 `0x18`，7.3 DTS
+5. **加速度计硬件存在且驱动可用。** STK8BAXX 位于 I2C6 `0x18`，7.3 DTS
    已补节点。当前运行态曾手工实例化验证；下一次重启应从 DTS 自动出现。
-5. **涉及 Android 整盘刷写前必须得到用户明确授权。** 刷写会覆盖当前 Linux
+6. **eDP0 是可选内屏路径，不是不存在的接口。** 同一份 7.3 DTS 同时描述
+   DSI1/LT9211/LVDS 和 VP2/eDP0；eDP 不设置 `force-hpd`/`no-hpd`，
+   由真实 HPD/AUX 决定 connected 或 disconnected，不能伪造常亮内屏。
+7. **涉及 Android 整盘刷写前必须得到用户明确授权。** 刷写会覆盖当前 Linux
    eMMC，属于破坏性操作。
 
 ---
@@ -38,20 +45,21 @@
 | 项目 | 当前值 |
 |---|---|
 | 主机名 | `really` |
-| SSH | `user@192.168.3.250`，密码由用户单独提供 |
-| 内核 | `Linux 7.3.4-edge-rockchip64 #68` |
+| SSH | 当前现场为 `root@192.168.3.233`，密码由用户单独提供 |
+| 内核 | `Linux 7.3.4-edge-rockchip64 #61` |
 | 启动介质 | eMMC |
 | 桌面 | GDM + Ubuntu session，自动登录 `user` |
 | 主题 | `gtk-theme=Yaru-dark`，`icon-theme=Yaru` |
 | 电源策略 | CPU governor 全部 `performance` |
-| 当前 DTB SHA256 | `51018dc16981e8dc4f70c98c1f217074e51d7dafeffd4f97cc55ba4293c39c3f` |
+| 当前运行 DTB SHA256 | `98cb2541226cdc34ff269040f4b99cc30c21e159b15545d6709ef5688f4f9b84` |
 | 当前完整镜像 | `/home/user/github/build/output/images/Armbian-unofficial_26.11.0-trunk_Really_resolute_edge_7.3.4_gnome_desktop.img` |
-| 当前完整镜像 SHA256 | `a26df4a1f6a2128cd531bb9d44755a65d1e4a4f64250dc66b0ef876764ab1996` |
+| 最近构建镜像 SHA256 | `9eb4f5726d337073a7d1e8a06f41ef5fd67fe9e5413ef1f15f702b5ce9585980` |
 
 当前镜像包含：
 
 - 完整社区启动链：SPL + U-Boot 2026.07 + Linux 7.3.4。
-- Really LVDS 双链路、Type-C DP、ES8388、GPS、USB HID workaround。
+- Really LVDS 双链路、ES8388、GPS、USB HID workaround。
+- Type-C DP 配置和 extcon 桥接代码已包含，但最终基线尚未闭环。
 - Yaru 图标、Ubuntu session、首启账户预置。
 - USB 摄像头虚拟源和启动器链路，当前方向设置为 `90r`。
 - STK8BAXX 加速度计 DTS 节点。
@@ -64,9 +72,9 @@
 ```text
 /home/user/device/rk3588-really/rk3588_livedeck_really
 remote: git@github.com:Junklords/rk3588_livedeck_really.git
-HEAD:   35808e766da6c65169b7a6623a0a3b31a9a62f77
+HEAD:   08613d8
 track:  main -> origin/main
-state:  2 个未提交文件
+state:  含未提交的设备树、eDP 和当前状态文档改动；接手前先执行 `git status`
 ```
 
 提交历史与当前意义的对应关系：
@@ -83,6 +91,7 @@ state:  2 个未提交文件
 | `a5fd2ec` | 记录 DRM/fbcon 方向结论 | 防止回退说明 |
 | `bcfaebc` | 归档 mainline U-Boot DTS/config | U-Boot 板级参考 |
 | `35808e7` | 最近一次综合 DTS 更新 | 见下方逐项说明 |
+| `08613d8` | U-Boot 更新 | 当前 main/upstream 基线 |
 
 `35808e7` 实际上包含多组改动，提交标题 `update dts` 过于笼统。它包含：
 
@@ -97,19 +106,24 @@ state:  2 个未提交文件
 - U-Boot SD 供电链改为原厂 `vcc_3v3_s3 -> vcc_sd`，并补充 SDIO 属性。
 - 新增 `u-boot-mainline/TF-BOOT-STATUS.md` 初版。
 
-当前未提交的两个文件：
+当前工作树不能再用固定文件数描述，至少包含：
 
 ```text
+M README.md
+M README.en.md
+M docs/AI-HANDOVER-CHECKLIST-20261115.md
+M dts-7.3-linux/FIXES.md
 M dts-7.3-linux/rk3588-really.dts
-M u-boot-mainline/TF-BOOT-STATUS.md
+?? reports/
 ```
 
-未提交 DTS 改动是 STK8BAXX：
+当前未提交 7.3 DTS 改动包括但不限于：
 
 ```text
-I2C6 0x18
-compatible = "sensortek,stk8ba50"
-IRQ = GPIO4_B7
+eDP0/VP2/PWM6 optional internal-panel path
+Type-C extcon bridge and SBU/lane experiment
+GT9110 polarity and portrait coordinate experiment
+mipi_cam_pwen and current Type-C power topology
 ```
 
 当前 7.3 DTS 已与构建仓一致：
@@ -147,6 +161,7 @@ u-boot-mainline/board_really/0004-really-sdmmc-power-domain-in-spl.patch
  DSI1 4-lane ----------->| VOP/DSI -> LT9211 @ I2C4 0x2d|
                          |             |                 |
                          |             +-> dual LVDS ----> 15.6" portrait panel
+ VP2 / eDP0 ------------->| optional internal eDP panel  |
                          |                               |
  DP Alt Mode <---------->| USBDP / HUSB311 Type-C       |
  HDMI OUT <--------------| HDMI1 TX                     |
@@ -178,7 +193,6 @@ u-boot-mainline/board_really/0004-really-sdmmc-power-domain-in-spl.patch
 - [x] 内屏 1080x1920 竖屏方向。
 - [x] 背光亮度调节。当前运行值可能被用户调成其他值；镜像默认逻辑值 154。
 - [x] ES8388 扬声器、耳机、录音、耳机检测。
-- [x] Type-C DP 4K30 输出。
 - [x] USB Type-C USB2、USB-A 主机。
 - [x] YT8531C 有线网和 PHY LED。
 - [x] GPS 以 NMEA0183 识别，室内无 fix 属正常。
@@ -191,7 +205,10 @@ u-boot-mainline/board_really/0004-really-sdmmc-power-domain-in-spl.patch
 ### 4.2 部分可用或需要重新验证
 
 - [ ] HDMI OUT 热插拔后 HPD/EDID 状态可能不刷新；拔线后仍显示 connected。
-- [ ] Type-C DP 4K60 不稳定，当前只建议 4K30。
+- [ ] **Type-C DP 整体未闭环，不是只差 4K60。** 当前 `DP-1 disconnected`，
+  Type-C partner 不存在；HUSB311/RT1711H 反复出现
+  `SRC_READY -> disconnected -> TOGGLING`。历史配置曾抓到 4K30，
+  但当前基线不能持续保持 Alt Mode。
 - [ ] 相机 `90r` 方向等待用户最终目视确认；用户已确认 `90l` 会倒立。
 - [ ] Wi-Fi/BT 设备已枚举，但完整新镜像上的重连和吞吐需回归。
 - [ ] 硬解节点存在，但全 codec 矩阵和长时间稳定性未重新验收。
@@ -202,6 +219,7 @@ u-boot-mainline/board_really/0004-really-sdmmc-power-domain-in-spl.patch
 ### 4.3 明确未解决
 
 - [ ] **TF 启动：U-Boot 初始化 TF 返回 `-EIO`。**
+- [ ] **USB-C DP：partner/Alt Mode 不稳定，当前 `DP-1 disconnected`。**
 - [ ] **GT9110 触控：无输入设备，I2C `-ENXIO`。**
 - [ ] **HYM8563 RTC：冷启动 I2C 不稳定，和触控共享 I2C4。**
 - [ ] HDMI IN mainline 采集链路。
@@ -365,6 +383,59 @@ Goodix-TS 4-0014: I2C communication failure: -6
 
 `-6` 为 `-ENXIO`。
 
+Android 12 对照基线已经采集，触控完全正常：
+
+```text
+input name       goodix-ts
+event node       /dev/input/event6
+I2C client       /sys/bus/i2c/devices/4-0014
+device-tree path /i2c@feac0000/gt9xx@14
+driver           Goodix-TS
+raw X range      0..1080
+raw Y range      0..1920
+```
+
+基线目录：
+
+```text
+/home/user/device/rk3588-really/reports/android-touch-baseline-20261115-1820/
+```
+
+四角触摸实测映射：
+
+```text
+top-left      X≈52  Y≈78
+top-right     X≈1055 Y≈80
+bottom-right  X≈1060 Y≈1875
+bottom-left   X≈50  Y≈1875
+center        X≈550 Y≈910
+```
+
+这直接证明：
+
+- 触控硬件、排线、供电、上拉和 reset/IRQ 网络全部正常。
+- 触控原生坐标系是 portrait `1080x1920`。
+- 当前实验 DTS 已把 `touchscreen-size-x/y` 修正为 `1080/1920`，
+  它与 Android 基线一致；该修正不解决 ENXIO。
+- Android DTS 使用 `goodix,gt9xx`、`reset-gpio`、`touch-gpio`、
+  `tp-size=<9110>`。
+- mainline 使用 `goodix,gt9110`、`reset-gpios`、`irq-gpios`、
+  `interrupts` 和 AVDD28/VDDIO supplies。
+- Android runtime I2C4 节点没有 `clock-frequency` 属性。vendor 5.10 的
+  `i2c_parse_timing()` 会回退到 `I2C_MAX_STANDARD_MODE_FREQ=100000`，所以
+  Android 实测正常基线实际是 **100 kHz**；mainline 当前写 400 kHz，明显
+  不一致。厂商源码重建树中的 400 kHz 与运行时 DTB 不符。
+- HYM8563 也在同一条 I2C4 100 kHz 总线上正常工作。Android dmesg：
+
+  ```text
+  rtc-hym8563 4-0051: rtc information is valid
+  rtc-hym8563 4-0051: registered as rtc0
+  rtc-hym8563 4-0051: setting system clock to 2021-01-01T12:10:26 UTC
+  ```
+
+  因此 mainline 中 GT9110 和 HYM8563 同时失败，首要共同变量是 I2C4
+  频率/控制器配置，而不是两个设备各自损坏。
+
 原厂配置：
 
 ```text
@@ -388,16 +459,16 @@ HYM8563 address  0x51
 
 ### 6.3 接手建议
 
-优先做 Android 基线，而不是继续盲改 mainline：
+Android 基线已经完成，不需要再次盲刷。当前优先级改为：
 
-1. 刷回可 root、带 ADB 的 Android 12。
-2. 确认触控是否正常。
-3. 抓 Android 的输入设备、IDC、getevent、DTS、I2C 和内核日志。
-4. 如果 Android 触控正常，再集中比较：
+1. 使用现有 `reports/android-touch-baseline-20261115-1820/` 对照。
+2. 对照 Android 启动后保留的供电、GPIO、PMIC 和 I2C4 控制器状态。
+3. 检查 GT9110 与 HYM8563 是否共享某个 mainline 尚未打开的供电/使能。
+4. 集中比较：
    - GT9110 reset/IRQ 的实际申请与物理时序。
    - HYM8563 同步失败的共同根因。
    - I2C4 控制器、供电域、pinmux、时钟和 vendor BL31 初始化。
-5. 如果 Android 触控也不正常，转硬件/排线/触控模组排查。
+5. 在没有串口证据前，不再重复轮换 GPIO 极性、pull mode 和 late-bind。
 
 ### 6.4 安全禁忌
 
@@ -512,11 +583,16 @@ in_accel_scale = 0.038400
 - LVDS 双链路 full-screen。
 - 面板原生方向为 portrait。
 - 背光 PWM 方向已经反向映射。
-- Type-C DP 4K30。
 
 ### 9.2 未稳定
 
-- Type-C DP 4K60 右半屏异常或链路不稳，保持 4K30。
+- **Type-C DP 当前未闭环。** 当前运行态 `DP-1 disconnected`，
+  `/sys/class/typec` 下只有 `port0`、没有 partner；日志反复显示
+  HUSB311 在 `SRC_READY -> disconnected -> TOGGLING` 之间循环。
+- 历史配置曾出现 `DP-1 connected`、Pin Assignment C 和完整 link
+  training，并验证 4K30。该结果只能作为“链路具备潜力”的证据，
+  不能作为当前镜像验收结论。
+- Type-C DP 4K60 即使在此前成功状态下也不稳定。
 - HDMI OUT 拔线后 HPD/EDID 可能保持 connected，导致桌面色深/模式协商异常。
 - HDMI OUT 不插线时可能残留虚拟输出。
 - HDMI IN mainline 仍需 open-source TF-A HDMIRX 支持及 LT6911 bridge/capture
@@ -524,6 +600,23 @@ in_accel_scale = 0.038400
 
 接手时先确认显示输出不要求 4K60。若要做动态 EDID，必须限制重试并有超时，
 避免阻塞合成器。
+
+### 9.3 Type-C DP 最终回归清单
+
+群发给群友的镜像至少完成以下测试后才能标记闭环：
+
+1. 冷启动不接 DP，再插入支持 3840x2160@30 的 DP 显示器。
+2. 确认 DRM connector 为 connected，且没有右半屏缺失、花屏或链路重训失败。
+3. 确认 `3840x2160@30` 模式实际生效，不要求 4K60。
+4. 确认 Type-C DP 可作为 GNOME 主屏，内屏和 HDMI 保持可用。
+5. 拔插 DP 至少两次，桌面合成器不能卡死。
+6. 同时接 USB2 设备，确认 DP Alt Mode 没有把 USB2 一起断掉。
+
+当前硬件限制：
+
+- DP 与 USB3 共用 Type-C 高速 lane。
+- 双 lane DP 只验收 4K30。
+- 4K60 右半屏异常或不稳定属于已知风险，不作为群发验收条件。
 
 ---
 
@@ -635,7 +728,7 @@ adb shell getevent -lt /dev/input/eventX
 
 ```text
 /home/user/github/build/output/images/Armbian-unofficial_26.11.0-trunk_Really_resolute_edge_7.3.4_gnome_desktop.img
-SHA256 a26df4a1f6a2128cd531bb9d44755a65d1e4a4f64250dc66b0ef876764ab1996
+SHA256 9eb4f5726d337073a7d1e8a06f41ef5fd67fe9e5413ef1f15f702b5ce9585980
 ```
 
 ---
@@ -691,9 +784,9 @@ userpatches/overlay/usr/local/bin/power-mode.sh
 3. 在 U-Boot 里验证 `mmc 1`、regulator、PD_SDMMC、SCMI。
 4. 对比 vendor U-Boot/BL31 的 SDMMC power-domain 初始化。
 5. 若 TF 仍不响应，暂缓“刷 TF 启动”工作，避免继续消耗轮次。
-6. 用户授权后刷 Android 12，抓 GT9110/HYM8563 基线。
-7. 回到 mainline 修复 I2C4/触控/RTC。
-8. 最后再做自动旋转、HDMI 热插拔、硬解/NPU 长测。
+6. **Type-C DP 先稳定 partner/PD/VDM/extcon 状态，再验证 DP connector。**
+7. 基于现有 Android 触控基线，对比 mainline 的 I2C4、供电和 GPIO 状态。
+8. 修复 GT9110/HYM8563，再做自动旋转、HDMI 热插拔、硬解/NPU 长测。
 
 ---
 
@@ -753,4 +846,54 @@ sudo i2cdetect -y -r 4
 
 # TF/U-Boot
 # 在 U-Boot 命令行执行 mmc list / mmc dev 1 / mmc info / mmc part
+```
+
+## 2026-11-15 21:30 当前现场复核
+
+最近完整 mainline `edge 7.3.4` 镜像 SHA256：
+
+```text
+9eb4f5726d337073a7d1e8a06f41ef5fd67fe9e5413ef1f15f702b5ce9585980
+```
+
+当前运行态：
+
+```text
+kernel           7.3.4-edge-rockchip64 #61
+DTB SHA256       98cb2541226cdc34ff269040f4b99cc30c21e159b15545d6709ef5688f4f9b84
+LVDS-1           connected
+HDMI-A-1         disconnected (currently no HDMI sink)
+DP-1             disconnected
+Type-C partner   absent
+USB camera       2757:1303 present
+Goodix input     absent
+```
+
+`i2cdetect -y -r 4` 只显示 `0x2d` 为 `UU`，表示 LT9211 驱动占用；
+`0x14` 和 `0x51` 均无 ACK。`/sys/bus/i2c/devices/4-0014/driver` 与
+`4-0051/driver` 都不存在。
+
+已试过 100/400 kHz、reset/IRQ ACTIVE_LOW/ACTIVE_HIGH、
+pull-up/pull-none、late-bind，以及 `mipi_cam_pwen` 常开供电，均未解决。
+tracefs 曾证明 Goodix reset/IRQ descriptor 都成功取得；probe 失败后
+devm 自动释放，因此事后再看 gpioinfo 不能说明“GPIO 没申请”。
+
+Type-C 当前 DTB 仍使用：
+
+```text
+SBU1       GPIO3_A0
+SBU2       GPIO1_B2
+DP lanes   <2 3>
+USB 5V     GPIO4_A6
+extcon     typec-extcon bridge
+```
+
+这组 GPIO/lane 配置曾进入完整 link training，所以不能简单判定为
+“SBU 全错”。当前主要未解释项是 Type-C partner 为何在 PD/VDM 完成后
+仍反复 detach，以及 extcon `dp` cable 状态与 HPD 的同步时机。
+
+现场证据和后续命令见：
+
+```text
+reports/mainline-open-issues-20261115-2130/README.md
 ```
