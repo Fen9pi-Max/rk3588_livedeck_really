@@ -1,3 +1,15 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 
-#include "rk3588-generic-u-boot.dtsi"
+#include "rk3588-u-boot.dtsi"
+
+/ {
+	chosen {
+		/*
+		 * Match the proven Skysi X5 chain: keep the U-Boot proper
+		 * belonging to the current SPL first, then fall back to SD and
+		 * eMMC. U-Boot proper scans its normal boot target order after
+		 * this point.
+		 */
+		u-boot,spl-boot-order = "same-as-spl", &sdmmc, &sdhci;
+	};
+};

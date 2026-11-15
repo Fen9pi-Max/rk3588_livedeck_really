@@ -56,16 +56,26 @@ UART2 = M0 on the on-board UART header
 SD power enable = GPIO4_C3, active high
 ```
 
-The mainline U-Boot DTS now carries the minimum SD power chain aligned with
-Skysi-X5 and the kernel DTS:
+The U-Boot DTS carries the minimum SD power chain taken from the vendor 5.10
+DTS, not from a generic RK3588 board:
 
 ```text
 RK806 PMIC on SPI2
 pldo-reg5 = vccio_sd_s0, 3.3 V, boot-on/always-on
-SD pinctrl = bus4/clk/cmd/det
-SD card detect = GPIO0_A4, active low
+RK806 dcdc-reg8 = vcc_3v3_s3, parent of vcc_sd
 SD vmmc = GPIO4_C3 controlled vcc_sd
+SD vqmmc = pldo-reg5 vccio_sd_s0
+SD bus = the SoC's default clk/cmd/det/bus4 pinctrl
+SD card detect = no board-level cd-gpios override
 ```
+
+`u-boot,spl-boot-order` mirrors the proven Skysi-X5 structure:
+`same-as-spl`, then `&sdmmc`, then `&sdhci`. U-Boot proper uses the normal
+`boot_targets` mechanism after SPL. No board-specific `preboot` loader is part
+of the final configuration.
+
+See [TF-BOOT-STATUS.md](TF-BOOT-STATUS.md) for the verified facts, current
+blocker, and the checks that must pass before calling TF boot complete.
 
 This is separate from the Linux DTS. Changes to either side must be checked
 against its own binding and runtime behavior.
