@@ -67,6 +67,18 @@ The fixed-clock change is present in DTS but still needs validation with a
 correctly packaged full image. A hand-built kernel must retain the
 `7.3.4-edge-rockchip64` module release suffix.
 
+### Accelerometer
+
+- The STK8BAXX accelerometer is on I2C6 address `0x18`.
+- IRQ is GPIO4_B7.
+- It uses the upstream `sensortek,stk8ba50` IIO driver.
+- Runtime manual instantiation produced an `stk8ba50` IIO device and live
+  X/Y/Z readings.
+- The 7.3 DTS now contains `accelerometer@18` and its pinctrl entry.
+- Automatic USB-camera rotation is not implemented. The current camera keeps
+  a fixed GStreamer `videoflip` direction; any gravity-following behavior must
+  be implemented in userspace with hysteresis.
+
 ### Display
 
 - VOP2 VP0 -> HDMI1.
@@ -162,14 +174,18 @@ click. The click is more likely ES8388/amplifier power-on or mute timing.
    establish single-vs-dual mode.
 3. Panel-side 12 V, backlight power and LVDS common-mode/swing have not been
    measured with a meter or oscilloscope.
-4. HYM8563/GT9110 cold-boot I2C availability is intermittent.
-   Changing both GT9110 GPIOs to the factory active-low polarity did not fix
-   the `0x8140` I2C `-6` failure.
+4. GT9110 and HYM8563 remain unresolved on mainline. The current system does
+   not create a Goodix input device and still reports
+   `Goodix-TS 4-0014: ... 0x8140: -6`. Factory polarity/pinctrl alignment did
+   not fix the failure. An Android root baseline is the next comparison step.
 5. HDMI output can remain logically connected after cable removal, causing
    EDID I2C retries and a compositor stall. The image currently starts HDMI
    disabled by default.
 6. Type-C DP and USB3 cannot both have four lanes. Keep DP capped at 4K30 for
    the two-lane configuration.
+7. TF boot is still unresolved at U-Boot runtime despite correct aliases and
+   SD regulators. See `../u-boot-mainline/TF-BOOT-STATUS.md`; do not trust the
+   old claim that TF boot already works.
 
 ## Relevant build-tree files
 

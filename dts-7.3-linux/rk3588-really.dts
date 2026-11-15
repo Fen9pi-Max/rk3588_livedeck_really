@@ -778,6 +778,16 @@
 	pinctrl-0 = <&i2c6m0_xfer>;
 	status = "okay";
 
+	accelerometer@18 {
+		compatible = "sensortek,stk8ba50";
+		reg = <0x18>;
+		interrupt-parent = <&gpio4>;
+		interrupts = <RK_PB7 IRQ_TYPE_EDGE_RISING>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&stk8baxx_irq>;
+		status = "okay";
+	};
+
 	lt6911: bridge@2b {
 		compatible = "lontium,lt6911uxc2";
 		reg = <0x2b>;
@@ -998,6 +1008,12 @@
 };
 
 &pinctrl {
+	accelerometer {
+		stk8baxx_irq: stk8baxx-irq {
+			rockchip,pins = <4 RK_PB7 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
 	lt6911 {
 		lt6911_pins: lt6911-pins {
 			rockchip,pins = <3 RK_PA7 RK_FUNC_GPIO &pcfg_pull_none>,

@@ -1,0 +1,262 @@
+diff --git a/arch/arm/mach-rockchip/board.c b/arch/arm/mach-rockchip/board.c
+index 2e6bb38b923..47669215f21 100644
+--- a/arch/arm/mach-rockchip/board.c
++++ b/arch/arm/mach-rockchip/board.c
+@@ -9,7 +9,9 @@
+  *      (C) Copyright 2017 Theobroma Systems Design und Consulting GmbH
+  */
+ #include <config.h>
++#include <blk.h>
+ #include <clk.h>
++#include <command.h>
+ #include <cpu_func.h>
+ #include <env.h>
+ #include <dm.h>
+@@ -34,6 +36,134 @@
+ #include <asm/arch-rockchip/clock.h>
+ #include <asm/arch-rockchip/periph.h>
+ #include <power/regulator.h>
++#include <time.h>
++
++#define REALLY_BOOTLOG_LBA		30720
++#define REALLY_BOOTLOG_SECTORS		128
++#define REALLY_BOOTLOG_HEADER_MAGIC	0x314c5947
++#define REALLY_BOOTLOG_ENTRY_MAGIC	0x31455952
++#define REALLY_BOOTLOG_VERSION		1
++
++struct really_bootlog_header {
++	u32 magic;
++	u16 version;
++	u16 header_size;
++	u64 boot_id;
++	u32 next_seq;
++	u32 flags;
++	u8 reserved[488];
++};
++
++struct really_bootlog_entry {
++	u32 magic;
++	u32 seq;
++	u64 boot_id;
++	u64 time_us;
++	char stage[32];
++	char detail[456];
++};
++
++_Static_assert(sizeof(struct really_bootlog_header) == 512,
++	       "Really boot log header must occupy one sector");
++_Static_assert(sizeof(struct really_bootlog_entry) == 512,
++	       "Really boot log entry must occupy one sector");
++
++static struct really_bootlog_header really_log_header;
++static struct really_bootlog_entry really_log_entry;
++static bool really_log_ready;
++
++static int really_log_get_mmc_desc(struct blk_desc **desc)
++{
++	struct udevice *dev;
++	struct mmc *mmc;
++	int ret;
++
++	ret = uclass_get_device(UCLASS_MMC, 0, &dev);
++	if (ret)
++		return ret;
++
++	mmc = mmc_get_mmc_dev(dev);
++	if (!mmc)
++		return -ENODEV;
++
++	ret = mmc_init(mmc);
++	if (ret)
++		return ret;
++
++	*desc = mmc_get_blk_desc(mmc);
++	return *desc ? 0 : -ENODEV;
++}
++
++static int really_log_marker(const char *stage, const char *detail)
++{
++	struct blk_desc *desc;
++	int ret;
++
++	ret = really_log_get_mmc_desc(&desc);
++	if (ret)
++		return ret;
++
++	if (!really_log_ready) {
++		ret = blk_dread(desc, REALLY_BOOTLOG_LBA, 1,
++				&really_log_header);
++		if (ret != 1 ||
++		    really_log_header.magic != REALLY_BOOTLOG_HEADER_MAGIC ||
++		    really_log_header.version != REALLY_BOOTLOG_VERSION) {
++			memset(&really_log_header, 0,
++			       sizeof(really_log_header));
++			really_log_header.magic = REALLY_BOOTLOG_HEADER_MAGIC;
++			really_log_header.version = REALLY_BOOTLOG_VERSION;
++			really_log_header.header_size =
++				sizeof(really_log_header);
++			really_log_header.boot_id = get_timer_us(0);
++			really_log_header.next_seq = 0;
++			ret = blk_dwrite(desc, REALLY_BOOTLOG_LBA, 1,
++					 &really_log_header);
++			if (ret != 1)
++				return -EIO;
++		}
++		really_log_ready = true;
++	}
++
++	if (really_log_header.next_seq >= REALLY_BOOTLOG_SECTORS - 2)
++		return -ENOSPC;
++
++	memset(&really_log_entry, 0, sizeof(really_log_entry));
++	really_log_entry.magic = REALLY_BOOTLOG_ENTRY_MAGIC;
++	really_log_entry.seq = really_log_header.next_seq;
++	really_log_entry.boot_id = really_log_header.boot_id;
++	really_log_entry.time_us = get_timer_us(0);
++	snprintf(really_log_entry.stage, sizeof(really_log_entry.stage),
++		 "%s", stage ? stage : "");
++	snprintf(really_log_entry.detail, sizeof(really_log_entry.detail),
++		 "%s", detail ? detail : "");
++
++	ret = blk_dwrite(desc, REALLY_BOOTLOG_LBA + 1 +
++			 really_log_header.next_seq, 1, &really_log_entry);
++	if (ret != 1)
++		return -EIO;
++
++	really_log_header.next_seq++;
++	blk_dwrite(desc, REALLY_BOOTLOG_LBA, 1, &really_log_header);
++
++	return 0;
++}
++
++#if !defined(CONFIG_SPL_BUILD)
++static int do_reallylog(struct cmd_tbl *cmdtp, int flag, int argc,
++			char *const argv[])
++{
++	if (argc < 2)
++		return CMD_RET_USAGE;
++
++	really_log_marker(argv[1], argc > 2 ? argv[2] : "");
++	return CMD_RET_SUCCESS;
++}
++
++U_BOOT_CMD(reallylog, 3, 1, do_reallylog,
++	   "Write a persistent Really boot-stage marker",
++	   "<stage> [detail]");
++#endif
+ 
+ #if IS_ENABLED(CONFIG_EFI_HAVE_CAPSULE_SUPPORT) && IS_ENABLED(CONFIG_EFI_PARTITION)
+ 
+@@ -191,7 +321,11 @@ __weak int rk_board_late_init(void)
+ 
+ int board_late_init(void)
+ {
++	really_log_marker("uboot-late-init", "enter");
+ 	setup_boot_mode();
++	really_log_marker("boot-mode-done", env_get("boot_targets"));
++	really_log_marker("bootcmd", env_get("bootcmd"));
++	really_log_marker("fdtfile", env_get("fdtfile"));
+ 
+ #if IS_ENABLED(CONFIG_EFI_HAVE_CAPSULE_SUPPORT) && IS_ENABLED(CONFIG_EFI_PARTITION)
+ 	gpt_capsule_update_setup();
+diff --git a/arch/arm/mach-rockchip/spl.c b/arch/arm/mach-rockchip/spl.c
+index e989c148079..8dbc47fedc5 100644
+--- a/arch/arm/mach-rockchip/spl.c
++++ b/arch/arm/mach-rockchip/spl.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <binman_sym.h>
++#include <blk.h>
+ #include <cpu_func.h>
+ #include <debug_uart.h>
+ #include <dm.h>
+@@ -19,6 +20,79 @@
+ #include <asm/global_data.h>
+ #include <asm/io.h>
+ #include <linux/bitops.h>
++#include <mmc.h>
++#include <time.h>
++
++#define REALLY_BOOTLOG_LBA		30720
++#define REALLY_BOOTLOG_HEADER_MAGIC	0x314c5947
++#define REALLY_BOOTLOG_ENTRY_MAGIC	0x31455952
++#define REALLY_BOOTLOG_VERSION		1
++
++struct really_spl_log_header {
++	u32 magic;
++	u16 version;
++	u16 header_size;
++	u64 boot_id;
++	u32 next_seq;
++	u32 flags;
++	u8 reserved[488];
++};
++
++struct really_spl_log_entry {
++	u32 magic;
++	u32 seq;
++	u64 boot_id;
++	u64 time_us;
++	char stage[32];
++	char detail[456];
++};
++
++_Static_assert(sizeof(struct really_spl_log_header) == 512,
++	       "Really SPL log header must occupy one sector");
++_Static_assert(sizeof(struct really_spl_log_entry) == 512,
++	       "Really SPL log entry must occupy one sector");
++
++static void really_spl_log_marker(void)
++{
++#if CONFIG_IS_ENABLED(MMC_WRITE)
++	static struct really_spl_log_header header;
++	static struct really_spl_log_entry entry;
++	struct blk_desc *desc;
++	struct udevice *dev;
++	struct mmc *mmc;
++	int ret;
++
++	ret = uclass_get_device(UCLASS_MMC, 0, &dev);
++	if (ret)
++		return;
++
++	mmc = mmc_get_mmc_dev(dev);
++	if (!mmc || mmc_init(mmc))
++		return;
++
++	desc = mmc_get_blk_desc(mmc);
++	if (!desc)
++		return;
++
++	memset(&header, 0, sizeof(header));
++	header.magic = REALLY_BOOTLOG_HEADER_MAGIC;
++	header.version = REALLY_BOOTLOG_VERSION;
++	header.header_size = sizeof(header);
++	header.boot_id = get_timer_us(0);
++	header.next_seq = 1;
++	if (blk_dwrite(desc, REALLY_BOOTLOG_LBA, 1, &header) != 1)
++		return;
++
++	memset(&entry, 0, sizeof(entry));
++	entry.magic = REALLY_BOOTLOG_ENTRY_MAGIC;
++	entry.seq = 0;
++	entry.boot_id = header.boot_id;
++	entry.time_us = get_timer_us(0);
++	snprintf(entry.stage, sizeof(entry.stage), "%s",
++		 "spl-handoff-to-uboot");
++	blk_dwrite(desc, REALLY_BOOTLOG_LBA + 1, 1, &entry);
++#endif
++}
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+@@ -147,6 +221,8 @@ void board_init_f(ulong dummy)
+ 
+ void spl_board_prepare_for_boot(void)
+ {
++	really_spl_log_marker();
++
+ 	if (!IS_ENABLED(CONFIG_ARM64) || CONFIG_IS_ENABLED(SYS_DCACHE_OFF))
+ 		return;
+ 

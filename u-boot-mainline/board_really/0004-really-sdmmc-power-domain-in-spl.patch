@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Really Board Support <build@really.local>
+Date: Sun, 15 Nov 2026 16:45:00 +0800
+Subject: [PATCH] rockchip: really: enable SDMMC power domain before U-Boot proper
+
+The RK3588 PMU is protected from the non-secure U-Boot proper runtime.
+Assert the PD_SDMMC power request while SPL still runs in the privileged
+pre-ATF context, so U-Boot proper can initialize the microSD controller.
+
+---
+ arch/arm/mach-rockchip/spl.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/arch/arm/mach-rockchip/spl.c b/arch/arm/mach-rockchip/spl.c
+--- a/arch/arm/mach-rockchip/spl.c
++++ b/arch/arm/mach-rockchip/spl.c
+@@ -221,6 +221,10 @@
+ 
+ void spl_board_prepare_for_boot(void)
+ {
++	u32 val = readl((void *)0xfd8d8150);
++
++	writel(val | 0x2000, (void *)0xfd8d8150);
++	dsb();
+ 	really_spl_log_marker();
+ 
+ 	if (!IS_ENABLED(CONFIG_ARM64) || CONFIG_IS_ENABLED(SYS_DCACHE_OFF))
+-- 
+2.43.0

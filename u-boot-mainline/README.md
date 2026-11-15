@@ -77,5 +77,11 @@ of the final configuration.
 See [TF-BOOT-STATUS.md](TF-BOOT-STATUS.md) for the verified facts, current
 blocker, and the checks that must pass before calling TF boot complete.
 
+The Armbian build-time board patches are archived under
+[`board_really/`](board_really/README.md). They include boot logging,
+boot-target selection, reboot-mode handling, and one explicitly ineffective
+SDMMC power-domain experiment. The build-tree copies remain the source of
+truth.
+
 This is separate from the Linux DTS. Changes to either side must be checked
 against its own binding and runtime behavior.

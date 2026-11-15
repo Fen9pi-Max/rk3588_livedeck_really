@@ -1,0 +1,114 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Really Board Support <build@really.local>
+Date: Sun, 15 Nov 2026 16:45:00 +0800
+Subject: [PATCH] rockchip: really: act on reboot-mode storage and loader modes
+
+Really writes a Rockchip boot mode to PMU0_GRF 0x80 before reboot. Handle
+SD/eMMC/USB as boot_targets preferences, stop in the shell for recovery, and
+return to BootROM download mode for "reboot loader" so rkdeveloptool can
+flash the board without physical maskrom.
+
+---
+ arch/arm/include/asm/arch-rockchip/boot_mode.h |  5 +++++
+ arch/arm/mach-rockchip/boot_mode.c             | 60 ++++++++++++++++++++++++++
+ 2 files changed, 65 insertions(+)
+
+diff --git a/arch/arm/include/asm/arch-rockchip/boot_mode.h b/arch/arm/include/asm/arch-rockchip/boot_mode.h
+--- a/arch/arm/include/asm/arch-rockchip/boot_mode.h
++++ b/arch/arm/include/asm/arch-rockchip/boot_mode.h
+@@ -15,6 +15,11 @@
+ #define BOOT_CHARGING		(REBOOT_FLAG + 11)
+ /* enter usb mass storage mode */
+ #define BOOT_UMS		(REBOOT_FLAG + 12)
++/* storage-selective boot */
++#define BOOT_NVME		(REBOOT_FLAG + 16)
++#define BOOT_EMMC		(REBOOT_FLAG + 17)
++#define BOOT_SD			(REBOOT_FLAG + 18)
++#define BOOT_USB		(REBOOT_FLAG + 19)
+ /* enter bootrom download mode */
+ #define BOOT_BROM_DOWNLOAD	0xEF08A53C
+ 
+diff --git a/arch/arm/mach-rockchip/boot_mode.c b/arch/arm/mach-rockchip/boot_mode.c
+--- a/arch/arm/mach-rockchip/boot_mode.c
++++ b/arch/arm/mach-rockchip/boot_mode.c
+@@ -12,6 +12,7 @@
+ #include <dm/device.h>
+ #include <dm/uclass.h>
+ #include <linux/printk.h>
++#include <linux/string.h>
+ 
+ #if (CONFIG_ROCKCHIP_BOOT_MODE_REG == 0)
+ 
+@@ -83,6 +84,42 @@
+ 	}
+ }
+ 
++static void rockchip_boot_targets_first(const char *target)
++{
++	const char *order = env_get("boot_targets");
++	const size_t target_len = strlen(target);
++	char out[256];
++	size_t len;
++	const char *p;
++
++	if (!order)
++		order = "mmc1 usb mmc0";
++
++	len = snprintf(out, sizeof(out), "%s", target);
++	for (p = order; *p && len < sizeof(out) - 1; ) {
++		const char *start = p;
++		size_t tok_len;
++
++		while (*p && *p != ' ')
++			p++;
++		tok_len = p - start;
++		while (*p == ' ')
++			p++;
++
++		if (tok_len == target_len && !strncmp(start, target, tok_len))
++			continue;
++		if (len + 1 + tok_len >= sizeof(out))
++			break;
++		out[len++] = ' ';
++		memcpy(out + len, start, tok_len);
++		len += tok_len;
++		out[len] = '\0';
++	}
++
++	printf("boot mode: %s first (boot_targets=%s)\n", target, out);
++	env_set("boot_targets", out);
++}
++
+ int setup_boot_mode(void)
+ {
+ 	void *reg = (void *)CONFIG_ROCKCHIP_BOOT_MODE_REG;
+@@ -105,6 +142,27 @@
+ 		debug("%s: enter UMS!\n", __func__);
+ 		env_set("preboot", "setenv preboot; ums mmc 0");
+ 		break;
++	case BOOT_LOADER:
++		printf("boot mode: returning to BootROM download mode\n");
++		set_back_to_bootrom_dnl_flag();
++		do_reset(NULL, 0, 0, NULL);
++		break;
++	case BOOT_RECOVERY:
++		printf("boot mode: recovery shell\n");
++		env_set("bootdelay", "-1");
++		break;
++	case BOOT_EMMC:
++		rockchip_boot_targets_first("mmc0");
++		break;
++	case BOOT_SD:
++		rockchip_boot_targets_first("mmc1");
++		break;
++	case BOOT_USB:
++		rockchip_boot_targets_first("usb");
++		break;
++	case BOOT_NVME:
++		rockchip_boot_targets_first("nvme");
++		break;
+ 	}
+ 
+ 	return 0;
+-- 
+2.43.0

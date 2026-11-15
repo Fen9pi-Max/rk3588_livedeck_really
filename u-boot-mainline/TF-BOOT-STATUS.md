@@ -83,6 +83,22 @@ initialization has not yet been proven to receive a card response. The final
 vendor-aligned DTS build compiles, but a TF-rooted cold/warm boot has not yet
 been recorded as successful.
 
+Final bring-up result on 2026-11-15:
+
+```text
+mmc_init       = -EIO
+SCMI clock     = 400000 Hz, set OK
+vmmc/vqmmc     = bound, 3.3 V, enabled
+U-Boot PMU     = 0x11 (PD_SDMMC power bit absent)
+direct PMU RMW = ignored from the normal world
+SCMI pd get/on = -ENODEV / -ENODEV
+```
+
+The SCMI firmware exposes clock and reset protocols but not a usable power
+domain protocol through the current U-Boot firmware node. Further work requires
+changing the ATF/SCMI firmware side or adding an RK3588 secure-call power-domain
+backend; it cannot be completed by boot-order or Linux DTS changes alone.
+
 Do not mark TF boot complete based only on:
 
 - Linux seeing the card;

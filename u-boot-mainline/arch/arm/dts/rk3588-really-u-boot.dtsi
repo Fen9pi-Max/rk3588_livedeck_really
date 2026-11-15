@@ -7,8 +7,8 @@
 		/*
 		 * Match the proven Skysi X5 chain: keep the U-Boot proper
 		 * belonging to the current SPL first, then fall back to SD and
-		 * eMMC. U-Boot proper scans its normal boot target order after
-		 * this point.
+		 * eMMC.  U-Boot proper scans boot_targets (SD -> USB -> eMMC)
+		 * after this point.
 		 */
 		u-boot,spl-boot-order = "same-as-spl", &sdmmc, &sdhci;
 	};

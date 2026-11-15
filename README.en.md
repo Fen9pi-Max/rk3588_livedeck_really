@@ -7,6 +7,11 @@ This repository documents the reverse-engineered device trees for the Really TVI
 See [`dts-7.3-linux/FIXES.md`](dts-7.3-linux/FIXES.md) for the current
 Linux 7.3 board changes and validation boundary.
 
+See
+[`docs/AI-HANDOVER-CHECKLIST-20261115.md`](docs/AI-HANDOVER-CHECKLIST-20261115.md)
+for the current full status, unresolved TF boot work, Android touch baseline
+plan, and the recommended takeover order.
+
 See [`dts-6.1-linux/FIXES.md`](dts-6.1-linux/FIXES.md) for the vendor 6.1
 fixes, synchronized 7.3 items and deliberately unsynchronized driver-model
 differences.

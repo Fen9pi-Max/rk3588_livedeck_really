@@ -7,6 +7,9 @@
 Linux 7.3 的当前板级改动和实测边界见
 [`dts-7.3-linux/FIXES.md`](dts-7.3-linux/FIXES.md)。
 
+当前完整状态、TF 启动遗留项、触控 Android 基线和群友 AI 接手顺序见
+[`docs/AI-HANDOVER-CHECKLIST-20261115.md`](docs/AI-HANDOVER-CHECKLIST-20261115.md)。
+
 vendor 6.1 的现有修复、7.3 回移项与明确不适用项见
 [`dts-6.1-linux/FIXES.md`](dts-6.1-linux/FIXES.md)。
 
