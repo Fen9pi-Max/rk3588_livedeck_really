@@ -51,12 +51,18 @@ Playback baseline: ES8388 playback enumerates and the speaker path produces
 audio; the amplifier is switched off after playback stops. The play/pause
 ADC input registers as a second `adc-keys` input device.
 
-Capture is **not closed**. Every tested ES8388 analog route currently returns
+ES8388 analog capture is **not closed**. Every tested ES8388 route returns
 hard digital zero on both channels, including after increasing Mic PGA and
-confirming the I2C register write. The factory evidence instead identifies
-PDM0 as the built-in microphone path. Built-in-mic capture, the headset mic,
-the independent LINE IN switch and speaker/headphone quality remain open.
-See `../reports/audio-mic-linein-20261117/README.md`.
+confirming the I2C register write.
+
+The built-in microphone is the factory PDM0 path and now works on mainline:
+after installing the kernel/DTB and rebooting, `Really-PDM-Mics` binds to
+`fe4b0000.pdm`, enables the 300 MHz PDM clock and captures non-zero speech
+at 48 kHz. The captured left/right channels are identical, indicating the
+current single PDM line is duplicated into a stereo PipeWire source.
+
+The headset mic, the independent LINE IN switch and speaker/headphone
+quality remain open. See `../reports/audio-mic-linein-20261117/README.md`.
 
 ### USB and Type-C
 

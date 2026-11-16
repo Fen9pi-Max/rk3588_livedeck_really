@@ -86,7 +86,7 @@
 | ES8388 耳机检测 | ⚠️ 待完善 | GPIO4_B3 检测、GPIO4_B4 耳机功放使能；需验证插拔自动切换 |
 | ES8388 Audio 耳麦输入 | ❌ 未闭环 | 原厂走 Line 1；mainline 当前所有已试路由均为数字零 |
 | 独立 LINE IN | ❌ 未闭环 | 原厂走 Line 2，并由 GPIO1_B6 handler 动态切换 |
-| 内置 PDM 麦克风 | ❌ 未实机验证 | 原厂为 card 2；mainline 候选 DTB 已能编译 |
+| 内置 PDM 麦克风 | ✅ **已实机验证** | 重启后自动出现 `Really-PDM-Mics`；300 MHz 时钟开启，语音采样非零 |
 | 扬声器音质/爆音/低频 | ⚠️ 待完善 | 历史上有低频 hum、偏置和增益配置问题，不能按“能响”即关闭 |
 
 ---
@@ -552,14 +552,56 @@ Digital Mono
 | 当前 ES8388 全零是 PGA 太小 | 已排除 | PGA 0→8 后仍为硬零 |
 | 当前 ES8388 全零是 DAPM 未上电 | 已排除 | Main/Headset Mic、Mic Bias、ADC 均 On |
 | 当前 ES8388 全零是 I2C/ALSA 写失败 | 已排除 | 寄存器值实际变化 |
-| 当前全零是因为内置麦克风选错声卡 | 最可能 | 原厂内置麦克风为 PDM card2 |
-| PDM RV1126 回退足以覆盖 RK3588 | 未验证 | mainline 缺 `rk3588-pdm` compatible，signoff 不同 |
+| 当前全零是因为内置麦克风选错声卡 | 已确认 | ES8388 仍为零；PDM card1 可采到非零语音 |
+| PDM RV1126 回退足以覆盖 RK3588 | 首轮通过 | 300 MHz 时钟实际开启，48 kHz 可录音；仍需长时稳定性回归 |
 
 ---
 
 ## 8. 下一轮执行顺序
 
-### P0：完成 PDM 内置麦克风闭环
+### P0：完成 PDM 内置麦克风闭环（已通过首轮实机验证）
+
+#### PDM 录音命令陷阱
+
+本机 PipeWire 中 PDM source 同时有：
+
+```text
+object.id   = 34
+object.serial = 70
+node.name   = alsa_input.platform-pdm-mics.stereo-fallback
+```
+
+`pw-record --target` 接受的是 **node serial 或 node name，不是 object.id**。
+
+错误方式：
+
+```bash
+pw-record --target 34 ...
+```
+
+这里的 `34` 是 object.id，不是 serial；命令没有绑定 PDM，实际落到默认
+ES8388 source，录出的 8 秒数据全为零。硬件和驱动没有发生变化。
+
+正确方式：
+
+```bash
+timeout 8s pw-record \
+  --target alsa_input.platform-pdm-mics.stereo-fallback \
+  --rate 48000 --channels 2 --format s16 \
+  /tmp/pdm-mic-test.wav
+```
+
+也可以使用 serial：
+
+```bash
+pw-record --target 70 ...
+```
+
+但 node id 会随重启和 PipeWire 重连变化，`object.id` 不应作为稳定标识。
+优先使用 `node.name`。
+
+另外，PipeWire 1.6.2 的 `pw-record --sample-count` 在达到数量后可能不退出，
+应使用 `timeout` 或由外部终止录音进程。
 
 1. 确认完整 Armbian kernel build 成功。
 2. 安装与运行内核 release 完全匹配的 kernel package。
@@ -678,12 +720,12 @@ amixer -c Really-ES8388 contents
 ## 10. 待办清单
 
 - [ ] 完整 kernel package 构建成功并安装到实机。
-- [ ] `Really-PDM-Mics` 声卡出现。
-- [ ] RK3588 PDM driver bind 成功。
-- [ ] PDM 时钟、pinmux、DMA 状态取证。
-- [ ] 从 PDM 静默采集到非零语音。
-- [ ] 验证 PDM 多通道映射与左右声道。
-- [ ] 确认重启后 PDM 自动工作。
+- [x] `Really-PDM-Mics` 声卡出现。
+- [x] RK3588 PDM driver bind 成功。
+- [x] PDM 时钟、pinmux、DMA 状态取证。
+- [x] 从 PDM 静默采集到非零语音。
+- [x] 验证 PDM 当前为单路麦克风复制到左右双声道。
+- [x] 确认重启后 PDM 自动工作。
 - [ ] 确认 ES8388 Audio 耳麦使用 Line 1。
 - [ ] 确认独立 LINE IN 使用 Line 2。
 - [ ] 确认 GPIO1_B6 插拔状态和极性。
@@ -729,6 +771,8 @@ amixer -c Really-ES8388 contents
 | 2026-11-17T00:20:00+08:00 | Codex / user | 审计 factory 5.10 DTS、完整原厂 DTB、Android dmesg/logcat、stock boot strings | 内置麦为 PDM0；Audio/Line In 对应 ES8388 Line1/Line2 | 原厂路径已定位 | 完成 PDM kernel 并实机静默采集 |
 | 2026-11-17T00:20:00+08:00 | Codex / user | 复核当前 ES8388 capture | 所有已测路由均 peak/rms/nonzero=0 | ES8388 全零不是 PGA/DAPM 问题 | 改测 PDM |
 | 2026-11-17T00:30:54+08:00 | Codex / user | 发现构建仓已有 PDM DTS，但硬件 Git 仓尚未同步 | 已将 `pdm-codec`、`pdm-mics`、PDM0 节点补入 `dts-7.3-linux/rk3588-really.dts`；两份文件 `cmp=0` | 源码现已同步，PDM 仍未实机验证 | 完成内核包安装后静默采集 PDM |
+| 2026-11-17T00:43:00+08:00 | Codex / user | 安装内核+DTB、重启并静默测试内置 PDM 麦克风 | 内核 `7.3.4-edge-rockchip64 #72`；DTB `33c3fa37...044dcf7`；card1 `Really-PDM-Mics`；驱动 bind `fe4b0000.pdm`；录音 peak=32317、RMS≈887、nonzero=1399；左右声道完全相同 | **PDM 内置麦克风可以收音**；当前为单路复制双声道；`pw-record --sample-count` 收尾会挂住，需要 `timeout`/外部终止 | 做长时稳定性与 PDM 通道映射回归 |
+| 2026-11-17T00:46:31+08:00 | Codex / user | 复盘“先全零、后有声”差异 | `--target 34` 使用了 object.id，并非 `pw-record` 要求的 node serial/name，实际落到默认 ES8388；改用 `alsa_input.platform-pdm-mics.stereo-fallback` 后 PDM 时钟 RUNNING 且采样非零 | 修复点在录音命令的 source 选择，不在内核或硬件 | 后续录音统一使用 PDM node.name |
 |  |  |  |  |  |  |
 
 建议每次追加记录以下固定字段：
