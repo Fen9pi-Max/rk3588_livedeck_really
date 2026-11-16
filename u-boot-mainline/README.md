@@ -69,6 +69,24 @@ SD bus = the SoC's default clk/cmd/det/bus4 pinctrl
 SD card detect = no board-level cd-gpios override
 ```
 
+**This chain was briefly lost and has been restored.** Commit `2b7fb0e26`
+added the four switched module rails (for GT9110 and HYM8563) but deleted the
+whole `&spi2` + RK806 block along with `vqmmc-supply` and the `vin-supply` link
+on `vcc_sd` in the same diff. The archived file in this directory kept the PMIC,
+which is why the archive and the build tree disagreed for a while. The build
+tree is now correct again and both copies match. Whenever you touch this DTS,
+diff the whole file rather than reading the commit subject.
+
+### Power domains
+
+`sdmmc` declares `power-domains = <&power RK3588_PD_SDMMC>` in the upstream
+DTSI, but U-Boot cannot act on it: there is no `rockchip,rk3588-power-controller`
+driver in the U-Boot tree, the DM core does not parse `power-domains`, and the
+SCMI firmware exposes no power-domain protocol. `sdhci` (eMMC) has no
+`power-domains` property and lives in an always-on domain, which is why eMMC has
+always worked here and TF has not. See
+[TF-BOOT-STATUS.md](TF-BOOT-STATUS.md) for what this means for bring-up.
+
 `u-boot,spl-boot-order` mirrors the proven Skysi-X5 structure:
 `same-as-spl`, then `&sdmmc`, then `&sdhci`. U-Boot proper uses the normal
 `boot_targets` mechanism after SPL. No board-specific `preboot` loader is part
@@ -79,8 +97,10 @@ blocker, and the checks that must pass before calling TF boot complete.
 
 The Armbian build-time board patches are archived under
 [`board_really/`](board_really/README.md). They include boot logging,
-boot-target selection, reboot-mode handling, and one explicitly ineffective
-SDMMC power-domain experiment. The build-tree copies remain the source of
+boot-target selection, reboot-mode handling, module-rail enablement in
+`board_init()`, and one explicitly ineffective SDMMC power-domain experiment
+(`0004`, kept for the record: the SPL write to the PMU is ignored because the
+normal world has no power-domain access). The build-tree copies remain the source of
 truth.
 
 This is separate from the Linux DTS. Changes to either side must be checked

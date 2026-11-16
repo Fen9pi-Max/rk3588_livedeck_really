@@ -230,6 +230,29 @@
 		regulator-boot-on;
 	};
 
+	vcc1v8_sys: regulator-vcc1v8-sys {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio0 RK_PC0 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&vcc1v8_sys_en>;
+		regulator-name = "vcc1v8_sys";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	vcc28_dvp: regulator-vcc28-dvp {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc28_dvp";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		regulator-always-on;
+		regulator-boot-on;
+		vin-supply = <&vcc5v0_sys>;
+	};
+
 	mipi_cam_pwen: regulator-mipi-cam-pwen {
 		compatible = "regulator-fixed";
 		enable-active-high;
@@ -250,7 +273,7 @@
 		regulator-name = "vbus5v0_typec";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		vin-supply = <&vcc5v0_usb>;
+		vin-supply = <&vcc5v0_sys>;
 	};
 
 	vcc_1v1_nldo_s3: regulator-vcc-1v1-nldo-s3 {
@@ -580,8 +603,9 @@
 &edp0 {
 	/*
 	 * eDP0 is a factory-supported optional internal panel route on VP2.
-	 * Keep HPD/AUX dynamic so an unpopulated assembly is reported as
-	 * disconnected rather than as a phantom connected panel.
+	 * Keep HPD/AUX dynamic: an unpopulated eDP assembly stays disconnected
+	 * instead of becoming a phantom connected display, while a fitted panel
+	 * is probed normally.
 	 */
 	status = "okay";
 
@@ -804,8 +828,8 @@
 		interrupts = <RK_PB0 IRQ_TYPE_LEVEL_LOW>;
 		reset-gpios = <&gpio1 RK_PD3 GPIO_ACTIVE_HIGH>;
 		irq-gpios = <&gpio4 RK_PB0 GPIO_ACTIVE_HIGH>;
-		AVDD28-supply = <&vcc_3v3_s3>;
-		VDDIO-supply = <&vcc_1v8_s3>;
+		AVDD28-supply = <&vcc28_dvp>;
+		VDDIO-supply = <&vcc1v8_sys>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&gt9xx_gpios>;
 		status = "okay";
@@ -874,10 +898,10 @@
 			compatible = "usb-c-connector";
 			label = "USB-C";
 			data-role = "dual";
-			power-role = "dual";
+			/* The one-cable monitor supplies VBUS over USB-C PD. */
+			power-role = "sink";
 			try-power-role = "sink";
 			pd-revision = /bits/ 8 <0x2 0x0 0x1 0x2>;
-			source-pdos = <PDO_FIXED(5000, 3000, PDO_FIXED_USB_COMM)>;
 			sink-pdos = <PDO_FIXED(5000, 1000, PDO_FIXED_USB_COMM)>;
 			op-sink-microwatt = <1000000>;
 
@@ -1158,6 +1182,10 @@
 	};
 
 	touch {
+		vcc1v8_sys_en: vcc1v8-sys-en {
+			rockchip,pins = <0 RK_PC0 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+
 		gt9xx_gpios: gt9xx-gpios {
 			rockchip,pins = <1 RK_PD3 RK_FUNC_GPIO &pcfg_pull_none>,
 					<4 RK_PB0 RK_FUNC_GPIO &pcfg_pull_none>;
@@ -1204,14 +1232,6 @@
 	};
 };
 
-&gpio0 {
-	vcc1v8_sys_hog: vcc1v8-sys-hog {
-		gpio-hog;
-		gpios = <RK_PC0 GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "vcc1v8_sys_en";
-	};
-};
 
 &pwm12 {
 	pinctrl-names = "default";

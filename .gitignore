@@ -1,2 +1,7 @@
 /build/
 /tools/__pycache__/
+
+# Locally compiled artefacts; only the factory-extracted DTB is tracked.
+/dts-*/**/*.dtb
+/dts-*/*.dtb
+!/dtb-5.10-android/rk3588-really.dtb

@@ -57,23 +57,40 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 
 ## Mainline 7.3 当前实测状态
 
-修复前基线为 `2026-11-15` 的 `7.3.4-edge-rockchip64 #61`，DTB SHA256
-`98cb2541226cdc34ff269040f4b99cc30c21e159b15545d6709ef5688f4f9b84`。
-触控/RTC 电源修复已于 `2026-11-16` 实机验证；修复后 DTB 的 SHA256
-尚未记录在本文件。
+截至 `2026-11-16T14:51:00+08:00`，运行现场为
+`7.3.4-edge-rockchip64`，U-Boot
+`2026.07-Sece3-P56fc-Hae08-V6f98-Bd800-R448a`。
+
 
 | 功能 | 当前状态 |
 | --- | --- |
 | LVDS 内屏 | `LVDS-1 connected`，双链路画面正常 |
 | HDMI OUT | 当前未接显示器，`HDMI-A-1 disconnected` |
 | USB-C DP | **未闭环**。当前 `DP-1 disconnected`，Type-C partner 不存在；历史版本抓到过 4K30，当前基线不能复现稳定连接 |
-| GT9110 触控 | **已修复并实测通过**。恢复 `vcc1v8_sys`/`vcc28_dvp` 电源链后，I2C4 `0x14` 正常 |
-| HYM8563 RTC | **已修复并实测通过**。I2C4 `0x51` 随共享电源链恢复 |
-| I2C4 控制器 | LT9211 `0x2d`、GT9110 `0x14` 和 HYM8563 `0x51` 均正常 |
+| GT9110 触控 | ✅ **已工作**。`ID 9110, version: 1050`，`/dev/input/input8` |
+| HYM8563 RTC | ✅ **已工作**。`registered as rtc0` |
+| I2C4 控制器 | `0x14` / `0x2d` / `0x51` 三点均为 `UU`，全部正常绑定 |
+| TF 卡启动 | **未闭环**。见 [`u-boot-mainline/TF-BOOT-STATUS.md`](u-boot-mainline/TF-BOOT-STATUS.md) |
 
-触控/RTC 的根因是 7.3 未完整复现原厂 `vcc1v8_sys` 的 GPIO0_C0
-使能/pinctrl 依赖，以及 GT9110 AVDD28 的 2.8 V `vcc28_dvp` 供电。
-修复后触控和 RTC 均完成闭环；USB-C DP 仍是当前唯一未闭环项。
+### I2C4 设备修复说明
+
+触控与 RTC 曾经长期不工作，根因**不是**硬件、排线或 Android 移植，而是
+mainline DTS 缺少原厂的模块供电拓扑：
+
+- `vcc1v8_sys`（GPIO0_C0 控制）原本是个没有 pinctrl 的裸 `gpio-hog`，从未真正拉高；
+- `vcc28_dvp` 根本没定义；
+- 触控的 `AVDD28-supply` / `VDDIO-supply` 指向了错误的供电轨。
+
+补全后 `vcc1v8_sys 1800mV → 4-0014-VDDIO`、`vcc28_dvp 2800mV →
+4-0014-AVDD28`，两器件在 10 s 前后由 late-bind 服务完成绑定。
+
+LT9211（`0x2d`）一直正常，是因为它挂在常开的 `vcc_1v8_s3` 上，不受
+`vcc1v8_sys` 开关影响——这个对照关系是定位问题的关键。
+
+修复细节见
+[`reports/uboot-tf-boot-power-20261116/README.md`](reports/uboot-tf-boot-power-20261116/README.md)
+与
+[`reports/mainline-open-issues-20261115-2130/README.md`](reports/mainline-open-issues-20261115-2130/README.md)。
 
 ## 硬件拓扑
 

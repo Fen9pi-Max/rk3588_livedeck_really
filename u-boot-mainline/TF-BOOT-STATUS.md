@@ -47,15 +47,17 @@ used during bring-up is not a production solution and must not be committed.
    devnum 1. On the last full diagnostic before the final vendor-aligned DTS
    build, `mmc_init()` returned `-EIO`, with card version, card capabilities,
    and RCA all still zero.
-7. The board-specific SD rails are testable through U-Boot:
+7. The board-specific SD rails were measured as enabled in one earlier
+   bring-up:
 
    ```text
    vccio_sd_s0 = 3.3 V, enabled
    vcc_sd      = 3.3 V, enabled
    ```
 
-   Missing voltage or an unbound `vcc_sd` regulator is therefore no longer a
-   supported explanation.
+   **Caution:** that measurement predates commit `2b7fb0e26`, which removed the
+   RK806 PMIC block from the U-Boot DTS. It must not be treated as describing
+   the current tree. Re-measure before relying on it.
 8. Writing the combined `u-boot-rockchip.bin` at byte offset `0x8000`
    (sector 64) to both eMMC and TF is mechanically valid. Readback with
    `cmp` succeeds on both devices.
@@ -78,26 +80,49 @@ These changes are now archived in this directory:
 
 ## Current blocker
 
-The remaining problem is below DTS power configuration: U-Boot's SD host
-initialization has not yet been proven to receive a card response. The final
-vendor-aligned DTS build compiles, but a TF-rooted cold/warm boot has not yet
-been recorded as successful.
+**Rewritten 2026-11-16.** Part of the 2026-11-15 reasoning above was wrong and
+is corrected here.
 
-Final bring-up result on 2026-11-15:
+The `vmmc/vqmmc = bound` line recorded on 2026-11-15 was measured against a
+build that no longer matches the tree. Commit `2b7fb0e26` ("describe the
+switched module rails in U-Boot DTS") added the four module regulators but also
+deleted the entire `&spi2` + RK806 PMIC block, `vqmmc-supply`, the `vin-supply`
+link on `vcc_sd`, and the SD capability properties. After that commit the U-Boot
+device tree contained **no** `pmic@0` node at all, so `vcc_3v3_s3` and
+`vccio_sd_s0` had no provider and `vqmmc` was dangling.
 
-```text
-mmc_init       = -EIO
-SCMI clock     = 400000 Hz, set OK
-vmmc/vqmmc     = bound, 3.3 V, enabled
-U-Boot PMU     = 0x11 (PD_SDMMC power bit absent)
-direct PMU RMW = ignored from the normal world
-SCMI pd get/on = -ENODEV / -ENODEV
-```
+That regression has now been fixed (see
+[`../reports/uboot-tf-boot-power-20261116/README.md`](../reports/uboot-tf-boot-power-20261116/README.md)).
+The rebuilt `u-boot.dtb` resolves `vqmmc-supply` to `pldo-reg5` (phandle
+`0x88`) instead of leaving it dangling.
 
-The SCMI firmware exposes clock and reset protocols but not a usable power
-domain protocol through the current U-Boot firmware node. Further work requires
-changing the ATF/SCMI firmware side or adding an RK3588 secure-call power-domain
-backend; it cannot be completed by boot-order or Linux DTS changes alone.
+### What is still true
+
+The `PD_SDMMC` power domain is genuinely never enabled by U-Boot, and it cannot
+be fixed from the device tree:
+
+- The U-Boot defconfig did not set `CONFIG_POWER_DOMAIN` (now set, but only the
+  uclass exists).
+- There is **no** `rockchip,rk3588-power-controller` driver anywhere in the
+  U-Boot tree.
+- The U-Boot DM core does not parse the `power-domains` property at all.
+- SCMI firmware exposes only `protocol@14` (Clock) and `protocol@16` (Reset).
+  There is no `protocol@11` (Power Domain), so the normal world cannot ask the
+  firmware to power the domain on.
+
+The `0004` experiment (SPL writes `0x2000` into `0xfd8d8150`) was measured as
+having no effect: `PMU = 0x11` afterwards.
+
+The useful control case: `sdhci` (eMMC) declares **no** `power-domains` and sits
+in an always-on domain, which is exactly why eMMC has always worked in U-Boot
+while TF never has.
+
+### Status of the verification
+
+The rebuilt U-Boot (`2026.07-Sece3-P56fc-...`) is installed and running on
+192.168.3.233, but **a TF card was not inserted during verification**, so a
+TF-rooted boot could not be attempted. Do not read the fix as validated until
+the acceptance condition below is met.
 
 Do not mark TF boot complete based only on:
 
@@ -119,11 +144,35 @@ eMMC UUID `05d8ce93-2619-4837-8fc5-f2ed1f01a4df`.
 
 ## Next checks if card still reports no response
 
-1. Confirm SCMI clock lookup/set-rate result for `sdmmc` clock index 1.
-2. Compare the U-Boot SD controller register state with the vendor 5.10
+Do these in order. Step 0 must pass first, otherwise nothing below is
+meaningful.
+
+0. Insert a known-good TF card and confirm Linux itself enumerates it:
+
+   ```bash
+   lsblk | grep mmcblk1
+   ```
+
+   A card that Linux cannot see (`dwmmc_rockchip fe2c0000` stepping down
+   400k -> 300k -> 200k with no response) says nothing about U-Boot.
+
+1. In the U-Boot shell, confirm the SD supply chain fix took effect:
+
+   ```text
+   => mmc dev 1
+   => mmc info
+   ```
+
+   `mmc info` reporting capacity means vqmmc/vmmc are correct.
+
+2. Read the RK806 `pldo-reg5` and `dcdc-reg8` output state.
+
+3. Confirm SCMI clock lookup/set-rate result for `sdmmc` clock index 1.
+
+4. Compare the U-Boot SD controller register state with the vendor 5.10
    initial state during CMD0/CMD8.
-3. Verify the SDMMC power domain state before the first command.
-4. Only after the card responds, remove all diagnostic bootargs and test the
+
+5. Only after the card responds, remove all diagnostic bootargs and test the
    unmodified `boot_targets` path.
 
 ## Artifacts and recovery

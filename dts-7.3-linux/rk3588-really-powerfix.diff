@@ -1,0 +1,230 @@
+diff --git a/patch/kernel/archive/rockchip64-7.3/dt/rk3588-really.dts b/patch/kernel/archive/rockchip64-7.3/dt/rk3588-really.dts
+index d6270e43c..51ade1b96 100644
+--- a/patch/kernel/archive/rockchip64-7.3/dt/rk3588-really.dts
++++ b/patch/kernel/archive/rockchip64-7.3/dt/rk3588-really.dts
+@@ -110,7 +110,7 @@
+ 		pinctrl-0 = <&edp_backlight_en>;
+ 		power-supply = <&vcc_3v3_s3>;
+ 		pwms = <&pwm6 0 25000 0>;
+-		status = "disabled";
++		status = "okay";
+ 	};
+ 
+ 	chosen {
+@@ -211,6 +211,14 @@
+ 		status = "okay";
+ 	};
+ 
++	typec_extcon_bridge: typec-extcon {
++		compatible = "linux,typec-extcon-bridge";
++		mode-switch;
++		orientation-switch;
++		usb-role-switch;
++		svid = /bits/ 16 <0xff01>;
++	};
++
+ 	lvds_pwr_en: regulator-lvds-pwr-en {
+ 		compatible = "regulator-fixed";
+ 		enable-active-high;
+@@ -222,6 +230,40 @@
+ 		regulator-boot-on;
+ 	};
+ 
++	vcc1v8_sys: regulator-vcc1v8-sys {
++		compatible = "regulator-fixed";
++		enable-active-high;
++		gpio = <&gpio0 RK_PC0 GPIO_ACTIVE_HIGH>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&vcc1v8_sys_en>;
++		regulator-name = "vcc1v8_sys";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
++	vcc28_dvp: regulator-vcc28-dvp {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc28_dvp";
++		regulator-min-microvolt = <2800000>;
++		regulator-max-microvolt = <2800000>;
++		regulator-always-on;
++		regulator-boot-on;
++		vin-supply = <&vcc5v0_sys>;
++	};
++
++	mipi_cam_pwen: regulator-mipi-cam-pwen {
++		compatible = "regulator-fixed";
++		enable-active-high;
++		gpio = <&gpio1 RK_PA2 GPIO_ACTIVE_HIGH>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&camera_pwen>;
++		regulator-name = "mipi_cam_pwen";
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
+ 	vbus5v0_typec: regulator-vbus5v0-typec {
+ 		compatible = "regulator-fixed";
+ 		enable-active-high;
+@@ -231,7 +273,7 @@
+ 		regulator-name = "vbus5v0_typec";
+ 		regulator-min-microvolt = <5000000>;
+ 		regulator-max-microvolt = <5000000>;
+-		vin-supply = <&vcc5v0_usb>;
++		vin-supply = <&vcc5v0_sys>;
+ 	};
+ 
+ 	vcc_1v1_nldo_s3: regulator-vcc-1v1-nldo-s3 {
+@@ -559,7 +601,44 @@
+ };
+ 
+ &edp0 {
+-	status = "disabled";
++	/*
++	 * eDP0 is a factory-supported optional internal panel route on VP2.
++	 * Keep HPD/AUX dynamic: an unpopulated eDP assembly stays disconnected
++	 * instead of becoming a phantom connected display, while a fitted panel
++	 * is probed normally.
++	 */
++	status = "okay";
++
++	aux-bus {
++		panel {
++			compatible = "edp-panel";
++			backlight = <&backlight_edp>;
++			enable-gpios = <&gpio1 RK_PD0 GPIO_ACTIVE_HIGH>;
++			hpd-absent-delay-ms = <120>;
++			power-supply = <&vcc_3v3_s3>;
++			pinctrl-names = "default";
++			pinctrl-0 = <&edp_panel_en>;
++			rotation = <270>;
++
++			port {
++				panel_in_edp: endpoint {
++					remote-endpoint = <&edp0_out_panel>;
++				};
++			};
++		};
++	};
++};
++
++&edp0_in {
++	edp0_in_vp2: endpoint {
++		remote-endpoint = <&vp2_out_edp0>;
++	};
++};
++
++&edp0_out {
++	edp0_out_panel: endpoint {
++		remote-endpoint = <&panel_in_edp>;
++	};
+ };
+ 
+ &gmac0 {
+@@ -747,15 +826,15 @@
+ 		reg = <0x14>;
+ 		interrupt-parent = <&gpio4>;
+ 		interrupts = <RK_PB0 IRQ_TYPE_LEVEL_LOW>;
+-		reset-gpios = <&gpio1 RK_PD3 GPIO_ACTIVE_LOW>;
+-		irq-gpios = <&gpio4 RK_PB0 GPIO_ACTIVE_LOW>;
+-		AVDD28-supply = <&vcc_3v3_s3>;
+-		VDDIO-supply = <&vcc_1v8_s3>;
++		reset-gpios = <&gpio1 RK_PD3 GPIO_ACTIVE_HIGH>;
++		irq-gpios = <&gpio4 RK_PB0 GPIO_ACTIVE_HIGH>;
++		AVDD28-supply = <&vcc28_dvp>;
++		VDDIO-supply = <&vcc1v8_sys>;
+ 		pinctrl-names = "default";
+ 		pinctrl-0 = <&gt9xx_gpios>;
+ 		status = "okay";
+-		touchscreen-size-x = <1920>;
+-		touchscreen-size-y = <1080>;
++		touchscreen-size-x = <1080>;
++		touchscreen-size-y = <1920>;
+ 	};
+ 
+ 	hym8563: rtc@51 {
+@@ -812,16 +891,17 @@
+ 		pinctrl-names = "default";
+ 		pinctrl-0 = <&usbc0_int>;
+ 		vbus-supply = <&vbus5v0_typec>;
++		extcon = <&typec_extcon_bridge>;
+ 		status = "okay";
+ 
+ 		connector {
+ 			compatible = "usb-c-connector";
+ 			label = "USB-C";
+ 			data-role = "dual";
+-			power-role = "dual";
++			/* The one-cable monitor supplies VBUS over USB-C PD. */
++			power-role = "sink";
+ 			try-power-role = "sink";
+ 			pd-revision = /bits/ 8 <0x2 0x0 0x1 0x2>;
+-			source-pdos = <PDO_FIXED(5000, 3000, PDO_FIXED_USB_COMM)>;
+ 			sink-pdos = <PDO_FIXED(5000, 1000, PDO_FIXED_USB_COMM)>;
+ 			op-sink-microwatt = <1000000>;
+ 
+@@ -998,6 +1078,12 @@
+ };
+ 
+ &pinctrl {
++	camera {
++		camera_pwen: camera-pwen {
++			rockchip,pins = <1 RK_PA2 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++	};
++
+ 	lt6911 {
+ 		lt6911_pins: lt6911-pins {
+ 			rockchip,pins = <3 RK_PA7 RK_FUNC_GPIO &pcfg_pull_none>,
+@@ -1062,6 +1148,10 @@
+ 	};
+ 
+ 	edp {
++		edp_panel_en: edp-panel-en {
++			rockchip,pins = <1 RK_PD0 RK_FUNC_GPIO &pcfg_pull_up>;
++		};
++
+ 		edp_backlight_en: edp-backlight-en {
+ 			rockchip,pins = <4 RK_PB6 RK_FUNC_GPIO &pcfg_pull_none>;
+ 		};
+@@ -1092,6 +1182,10 @@
+ 	};
+ 
+ 	touch {
++		vcc1v8_sys_en: vcc1v8-sys-en {
++			rockchip,pins = <0 RK_PC0 RK_FUNC_GPIO &pcfg_pull_up>;
++		};
++
+ 		gt9xx_gpios: gt9xx-gpios {
+ 			rockchip,pins = <1 RK_PD3 RK_FUNC_GPIO &pcfg_pull_none>,
+ 					<4 RK_PB0 RK_FUNC_GPIO &pcfg_pull_none>;
+@@ -1138,14 +1232,6 @@
+ 	};
+ };
+ 
+-&gpio0 {
+-	vcc1v8_sys_hog: vcc1v8-sys-hog {
+-		gpio-hog;
+-		gpios = <RK_PC0 GPIO_ACTIVE_HIGH>;
+-		output-high;
+-		line-name = "vcc1v8_sys_en";
+-	};
+-};
+ 
+ &pwm12 {
+ 	pinctrl-names = "default";
+@@ -1644,6 +1730,13 @@
+ 	};
+ };
+ 
++&vp2 {
++	vp2_out_edp0: endpoint@ROCKCHIP_VOP2_EP_EDP0 {
++		reg = <ROCKCHIP_VOP2_EP_EDP0>;
++		remote-endpoint = <&edp0_in_vp2>;
++	};
++};
++
+ &vp3 {
+ 	vp3_out_dsi1: endpoint@ROCKCHIP_VOP2_EP_MIPI1 {
+ 		reg = <ROCKCHIP_VOP2_EP_MIPI1>;
