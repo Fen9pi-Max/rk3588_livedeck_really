@@ -20,6 +20,9 @@ HDMI IN 两路（面板内置 HDMIRX / 内部 LT6911UXC2）的待办、已排除
 验收标准见
 [`reports/hdmi-in-dual-path-20261116/README.md`](reports/hdmi-in-dual-path-20261116/README.md)。
 
+TF 卡已按 community 启动链重写并回读校验（启动未验证）：
+[`reports/tf-write-community-chain-20261116/README.md`](reports/tf-write-community-chain-20261116/README.md)。
+
 ## 版本目录
 
 | 目录 | 目标系统 | 主要差异 |
