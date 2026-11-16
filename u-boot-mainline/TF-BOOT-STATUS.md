@@ -119,18 +119,64 @@ while TF never has.
 
 ### Status of the verification
 
-The rebuilt U-Boot (`2026.07-Sece3-P56fc-...`) is installed and running on
-192.168.3.233, but **a TF card was not inserted during verification**, so a
-TF-rooted boot could not be attempted. Do not read the fix as validated until
-the acceptance condition below is met.
+**Corrected 2026-11-16 16:10.** The earlier note said "a TF card was not
+inserted during verification". That was true of the device under test
+(192.168.3.233) but was read as "no acceptance card exists", which was wrong.
+
+A usable acceptance card has been prepared on the build host 192.168.3.28:
+
+```text
+device       /dev/mmcblk1        62 GB
+partition    /dev/mmcblk1p1      ext4, LABEL=armbi_root
+UUID         21e2f14a-ad69-4db5-872c-965c678ff425   <- the TF acceptance UUID
+```
+
+The card previously carried `U-Boot SPL 2026.07_armbian-2026.07-Sece3-Pc12d`
+(Nov 15 16:39), which predates the vqmmc/PMIC restore. It has been rewritten
+with the current build:
+
+```text
+U-Boot       2026.07-Sece3-P56fc-Hae08-V6f98-Bd800-R448a  (Nov 16 14:49)
+write        dd if=u-boot-rockchip.bin of=/dev/mmcblk1 bs=32k seek=1 conv=notrunc
+readback     cmp of LBA64..+512 KiB against u-boot-rockchip.bin: identical
+partition    UUID unchanged after the write
+backup       /home/user/skysi-x5/backups/really-tf-head-16m-20261116-1608.bin
+             sha256 2c17f609892da3895f95a5476f254c00cac63884ade3bd61ee3f068d9c4b22e8
+```
+
+So the blocker is no longer "there is no card to test with". It is only that
+192.168.3.233 is currently powered down (it was hung by an ES8388
+unbind/rebind at 15:33 and needs a physical power cycle).
+
+The card must be moved to 192.168.3.233 and that board cold-booted with it
+inserted. A single command then produces the verdict:
+
+```bash
+bash really-tf-verify.sh          # lives in
+                                  # /home/user/skysi-x5/artifacts/really-tf-verify-1116/
+```
+
+It compares `findmnt -n -o SOURCE,FSTYPE,UUID /` on the device against the two
+recorded UUIDs and prints PASS/FAIL, then dumps `lsblk`, the `mmc1`/`dwmmc`
+dmesg lines, the mmc1 sysfs uevent and `chosen/u-boot,version`.
+
+Do not read the fix as validated until the acceptance condition below is met.
 
 Do not mark TF boot complete based only on:
 
 - Linux seeing the card;
 - U-Boot finding `mmc1`;
 - `vcc_sd` and `vccio_sd_s0` reading enabled;
-- U-Boot being written to both media.
+- U-Boot being written to both media;
+- the card being prepared and verified on the build host.
 
+The acceptance condition is a reboot where all of the following are true:
+
+```text
+U-Boot can read mmc 1:1 /boot/boot.scr
+Linux mounts /
+findmnt -n -o SOURCE,FSTYPE /
+```
 The acceptance condition is a reboot where all of the following are true:
 
 ```text
