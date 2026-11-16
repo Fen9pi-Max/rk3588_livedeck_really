@@ -69,6 +69,61 @@ controller scan is 1920x1080; desktop presentation must rotate left to
 SHA256: af411007674061923240708b8f6406fb181b37a7f3a188acd798725c67f20b94
 ```
 
+## 2026-11-17：补齐原厂电源拓扑（13 个 regulator）
+
+此前本文件只同步了 7.3 的显示/串口/USB 等结论，**漏掉了整棵电源树**。
+对照原厂 DTB 后发现，6.1 的板级 `regulator-fixed` 只有 15 个，原厂有 23 个。
+补齐后 29 个（多出的部分来自 PMIC 内部轨的正常差异）。
+
+### 缺的是什么
+
+| 类别 | 缺失项 |
+|---|---|
+| 带 GPIO 的关键轨 | `vcc1v8_sys`(GPIO0_C0)、`mipi_cam_pwen`(GPIO1_A2)、`vcc_5g_dpr_ctl`(GPIO3_D5)、`power_on_led`(GPIO3_D0) |
+| 无 GPIO 的虚拟轨 | `vcc4v0_sys`、`vcc3v3_ext`、`vcc12_dvp`、`vcc28_dvp`、`vcc1v8_pmu_ddr_s3`、`pcie20_avdd0v85/1v8`、`pcie30_avdd0v75/1v8` |
+| 共享使能 | `touch_panel_pwr`(GPIO1_PD0) |
+
+### 为什么之前没发现
+
+原厂触控 `gt9xx@14` 和 RTC `hym8563@51` **都没有 `*-supply` 属性**，
+它们完全依赖 `vcc1v8_en`(GPIO0_C0) 这条 always-on 轨被拉起。少了这条轨，
+两个器件会一起失效，而 I2C 控制器本身是好的——很容易被误判成 I2C 或
+驱动问题。
+
+同样的道理，`GPIO1_PD0` 是**触控模块和面板的共享使能**，此前只挂在 eDP
+面板的 `enable-gpios` 上。一旦 eDP 被 disable（本机确实没有 eDP 面板），
+触控跟着断电。必须抽成独立常开 regulator。
+
+### 供电轨接错
+
+GT9110 原来写 `power-supply = <&vcc_3v3_s3>`，实际需要：
+
+```dts
+AVDD28-supply = <&vcc28_dvp>;   /* 2.8V */
+VDDIO-supply  = <&vcc1v8_sys>;  /* 1.8V */
+```
+
+`vcc_3v3_s3` 是 PMIC 常开轨，看着"更安全"但不是这颗芯片的供电来源。
+这类错误能编译、能 probe，只是电压不对，比缺节点更难发现。
+
+### 与 mainline 保持一致的取舍
+
+- `vcc1v8_sys` 的 pinctrl（`gpio0_C0` + pull-up）**必须写**。7.3 最初只用
+  裸 gpio-hog，引脚从未真正被驱动，这个坑不能重犯。
+- 触控坐标保持 vendor 语义：`touchscreen-size-x=<1920>` /
+  `touchscreen-size-y=<1080>`，与原厂 `max-x=0x780` / `max-y=0x438` 一致。
+  **不加** mainline 的 `touchscreen-swapped-x-y` / `-inverted-x`，因为
+  vendor Goodix 驱动的轴序与 mainline 不同。
+
+### 验证状态
+
+**未上机验证。** 本地没有 6.1 的 dtsi 可供编译，只做了结构校验：
+大括号净差 0、无重复 label、未定义 label 数（25）与改动前一致。
+上机后需确认 `i2cdetect -y 4` 能看到 `0x14` 与 `0x51`。
+
+完整分析见
+[`../docs/DTS-POWER-RESTORE-20261117.md`](../docs/DTS-POWER-RESTORE-20261117.md)。
+
 ## 历史实测修复（对上游 dts 的 6 处变更）
 
 ### 1. `&uart0` → disabled（关键修复）

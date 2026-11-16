@@ -30,6 +30,9 @@ TF 卡已按 community 启动链重写并完成冷启动验证：
 2026-11-16 的 late-bind、U-Boot 电源、USB 休眠与 PHY LED 审计见
 [`reports/workaround-audit-20261116/README.md`](reports/workaround-audit-20261116/README.md)。
 
+5.10 / 6.1 设备树补齐原厂电源拓扑的原因、缺口清单和验证状态见
+[`docs/DTS-POWER-RESTORE-20261117.md`](docs/DTS-POWER-RESTORE-20261117.md)。
+
 ## 版本目录
 
 | 目录 | 目标系统 | 主要差异 |

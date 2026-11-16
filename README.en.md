@@ -88,6 +88,10 @@ See
 [`reports/workaround-audit-20261116/README.md`](reports/workaround-audit-20261116/README.md)
 for the controlled reboot evidence and remaining idle-soak check.
 
+Why the 5.10 and 6.1 trees were missing factory regulators, what was absent,
+and what still needs a hardware test:
+[`docs/DTS-POWER-RESTORE-20261117.md`](docs/DTS-POWER-RESTORE-20261117.md).
+
 See
 [`reports/mainline-open-issues-20261115-2130/README.md`](reports/mainline-open-issues-20261115-2130/README.md)
 for the captured evidence and rejected configurations.
