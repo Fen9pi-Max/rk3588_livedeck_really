@@ -257,6 +257,88 @@
 		};
 	};
 
+	/*
+	 * Switched 1.8V module rail on GPIO0_C0.  The factory keeps it
+	 * always-on.  GT9110 (VDDIO) and the HYM8563 RTC carry no supply
+	 * property of their own -- they depend entirely on this rail being
+	 * up.  The pinctrl group is mandatory: without it the pin is never
+	 * actually driven and both devices stay dead.
+	 */
+	vcc1v8_sys: regulator-vcc1v8-sys {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio0 RK_PC0 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&vcc1v8_sys_en>;
+		regulator-name = "vcc1v8_sys";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	vcc1v8_pmu_ddr_s3: regulator-vcc1v8-pmu-ddr-s3 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc1v8_pmu_ddr_s3";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+	};
+
+	pcie20_avdd0v85: regulator-pcie20-avdd0v85 {
+		compatible = "regulator-fixed";
+		regulator-name = "pcie20_avdd0v85";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <850000>;
+		regulator-max-microvolt = <850000>;
+	};
+
+	pcie20_avdd1v8: regulator-pcie20-avdd1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "pcie20_avdd1v8";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+	};
+
+	pcie30_avdd0v75: regulator-pcie30-avdd0v75 {
+		compatible = "regulator-fixed";
+		regulator-name = "pcie30_avdd0v75";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <750000>;
+		regulator-max-microvolt = <750000>;
+	};
+
+	pcie30_avdd1v8: regulator-pcie30-avdd1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "pcie30_avdd1v8";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+	};
+
+	/*
+	 * GPIO1_D0 enables the touch module AND the panel together.  Keep it
+	 * as a standalone always-on regulator instead of hanging it off the
+	 * eDP panel, so disabling eDP (this assembly has no eDP panel) cannot
+	 * take the touchscreen down with it.
+	 */
+	touch_panel_pwr: regulator-touch-panel-pwr {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio1 RK_PD0 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_panel_en>;
+		regulator-name = "touch_panel_pwr";
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
 	vcc_1v1_nldo_s3: regulator-vcc-1v1-nldo-s3 {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc_1v1_nldo_s3";
@@ -880,6 +962,8 @@
 		status = "okay";
 		compatible = "goodix,gt9xx";
 		reg = <0x14>;
+		AVDD28-supply = <&vcc28_dvp>;
+		VDDIO-supply = <&vcc1v8_sys>;
 		reset-gpio = <&gpio1 RK_PD3 GPIO_ACTIVE_LOW>;
 		touch-gpio = <&gpio4 RK_PB0 GPIO_ACTIVE_LOW>;
 		pinctrl-names = "default";
@@ -1263,6 +1347,11 @@
 			rockchip,pins = <1 RK_PD0 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 
+		/* Shared touch/panel enable, same pin as edp-en. */
+		touch_panel_en: touch-panel-en {
+			rockchip,pins = <1 RK_PD0 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+
 		edp_bl_en: edp-bl-en {
 			rockchip,pins = <4 RK_PB6 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
@@ -1386,6 +1475,10 @@
 	};
 
 	gt9xx {
+		vcc1v8_sys_en: vcc1v8-sys-en {
+			rockchip,pins = <0 RK_PC0 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+
 		gt9xx_gpios: gt9xx-gpios {
 			rockchip,pins = <1 RK_PD3 RK_FUNC_GPIO &pcfg_pull_up>,
 					<4 RK_PB0 RK_FUNC_GPIO &pcfg_pull_up>;
