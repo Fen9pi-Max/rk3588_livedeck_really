@@ -19,7 +19,8 @@ Alt Mode, AP6275P Wi-Fi/Bluetooth and ES8388 audio.
 
 The board also defines eDP0 as an optional factory-supported internal
 panel route. The default image keeps the fitted DSI1/LT9211/LVDS path;
-the same DTS also describes VP2/eDP0 with normal HPD/AUX detection.
+the same DTS retains the VP2/eDP0/AUX panel route with every component
+marked disabled by default.
 
 ## Integrated board changes
 
@@ -67,12 +68,24 @@ closed result for the current baseline. Current runs repeatedly leave
   independently controllable regulator and remains disabled unless a
   consumer requests it.
 - AP6275P remains on its independent PCIe 2.0 x1 link.
-- The AP6275P 32.768 kHz LFO is described as an always-on fixed clock so
-  Wi-Fi/Bluetooth probe does not depend on HYM8563 I2C probe succeeding.
+- The AP6275P 32.768 kHz LFO comes from HYM8563 CLKOUT. The temporary
+  `wifi-lpo` fixed-clock masked the RTC bring-up race but also made the
+  firmware fail with `FW failed to initialize`.
+- Both the WiFi PCI function and Bluetooth UART now reference
+  `<&hym8563>`. Since HYM8563 is itself brought up by the I2C4 late-bind
+  service, `really-wifi-late-load.service` waits for RTC, verifies CLKOUT,
+  rescans PCIe and loads `brcmfmac`.
 
-The fixed-clock change is present in DTS but still needs validation with a
-correctly packaged full image. A hand-built kernel must retain the
-`7.3.4-edge-rockchip64` module release suffix.
+Cold-boot validation on 2026-11-16:
+
+```text
+BCM43752/2 wl0: Jul 12 2022 ... 18.35.387.23.146
+wlP4p65s0: connected to HUAWEI-7409_5G, 192.168.3.253/24
+hci0: BCM43752A2 UART 37.4MHz Ampak AP6398
+```
+
+A hand-built kernel must still retain the `7.3.4-edge-rockchip64` module
+release suffix.
 
 ### Accelerometer
 
@@ -130,10 +143,16 @@ hot-plug regression passes.
 - Factory data defines eDP0 on VP2, with PWM6 backlight, backlight enable
   GPIO4_B6 and panel enable GPIO1_D0.
 - The production LVDS path remains DSI1 on VP3 through LT9211.
-- The same board DTS enables eDP0 and exposes an `edp-panel` on its AUX
-  bus. It deliberately uses normal HPD/AUX detection without
-  `force-hpd` or `no-hpd`, so an unpopulated eDP assembly is reported as
-  disconnected instead of creating a phantom display.
+- The board has a physical eDP connector, but the current assembly has no
+  eDP panel. The single board DTS retains eDP0, VP2, input/output
+  endpoints and the AUX panel node, but marks the whole route disabled.
+  Enabling an eDP SKU only requires changing those status values.
+- Keeping an empty eDP controller enabled is not neutral: a transient HPD
+  pulse lets DRM add a 1024x768 no-EDID fallback, after which fbcon keeps
+  the 1920x1080 framebuffer window at 1024x768.
+- GPIO1_D0 is a shared touch/panel enable, not an eDP-only signal. It is
+  represented by the always-on `touch_panel_pwr` regulator. Removing its
+  assertion makes GT9110 and HYM8563 disappear from I2C4 together.
 - The panel description assumes EDID. A panel without EDID needs its exact
   model, power sequence and timing.
 - No eDP panel has yet been fitted for physical validation.
@@ -162,6 +181,41 @@ Root cause and verified fix:
   HYM8563 on hardware.
 - GT9110 works at I2C4 `0x14`; HYM8563 works at `0x51`; LT9211 remains
   functional. No I2C bus remap or Goodix polarity change was required.
+- Post-fix `evtest` corner capture on the 1080x1920 portrait desktop:
+  top-left `(31,28)`, top-right `(1052,20)`, bottom-left `(14,1901)`,
+  bottom-right `(1062,1901)`.
+- Final DTS mapping is `touchscreen-inverted-x` plus
+  `touchscreen-swapped-x-y`. The resulting input ranges are X=`0..1919`,
+  Y=`0..1079`. This is the coordinate transform that matches the panel's
+  270-degree rotation and the GT9110's native portrait axis order.
+- The final GNOME nine-target test mapped all nine physical targets
+  correctly, including TL/TC/TR, ML/C/MR and BL/BC/BR. A mapping with only
+  `touchscreen-inverted-x` produced an anti-diagonal transform in GNOME;
+  adding `touchscreen-inverted-y` produced a 180-degree transform.
+- Final GNOME compositor-space samples:
+
+  ```text
+  TL (101,230)   TC (554,208)   TR (974,196)
+  ML (122,968)   C  (552,941)   MR (979,976)
+  BL (115,1725)  BC (546,1708)  BR (985,1732)
+  ```
+
+- Factory comparison: the runtime DTB has no touchscreen orientation or
+  calibration properties. It only sets `tp-size=<9110>`, GPIOs, and
+  `max-x/max-y`; the vendor driver parses but does not assign the latter
+  two. For `tp-size=9110`, the vendor gt9xx driver selects its embedded
+  GT9110 config path with no X/Y swap and no axis reversal.
+- The GT9110 chip currently stores a `1080x1920` config (`0x0438 x
+  0x0780`). Mainline does not overwrite it because
+  `goodix_9110_cfg.bin` is absent. Do not blindly copy the generic tree's
+  `GT9110P(2020)V71...cfg`: that source file describes a `1920x1200`
+  panel and is not the runtime config on this unit.
+- Libinput reports an identity calibration matrix and 0 degree rotation.
+  A fullscreen GNOME/Gtk nine-target test placed every compositor-space
+  touch within one 32 px target radius.
+- With the empty eDP route disabled, fbcon returned to
+  `mode "1920x1080"` / `geometry 1920 1080 1920 1080`; keeping the empty
+  controller enabled left `xres=1024, yres=768`.
 
 ### Ethernet, fans, keys and power
 

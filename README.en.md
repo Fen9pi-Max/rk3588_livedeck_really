@@ -41,7 +41,7 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | Primary storage | 8-bit eMMC 5.1, HS400, non-removable |
 | SD | 4-bit SDMMC, UHS SDR104, switchable 3.3 V supply |
 | Internal panel | 15.6-inch portrait; DSI1 4-lane -> LT9211 -> dual-link odd/even 24-bit VESA LVDS. The controller scans 1920x1080@60 and the desktop rotates it to a 1080x1920 logical display |
-| Alternate internal panel | eDP0 is a supported optional internal-panel route; the current BOM uses DSI1/LT9211 |
+| Alternate internal panel | eDP0 is a physical optional route; its full VP2/eDP0/AUX topology is retained but disabled because this assembly has no eDP panel |
 | External display | HDMI1 and DP0 over USB-C Alt Mode; the final DP0 baseline is not closed |
 | Ethernet | GMAC0, RGMII, PHY address 1 |
 | PCIe | PCIe 2.0 x1 lane 1 and lane 2 |
@@ -57,10 +57,8 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 
 ## Current Mainline 7.3 Runtime Status
 
-The pre-fix baseline ran `7.3.4-edge-rockchip64 #61` with DTB SHA256
-`98cb2541226cdc34ff269040f4b99cc30c21e159b15545d6709ef5688f4f9b84`.
-The touch/RTC power fix was hardware-validated on 2026-11-16; the SHA256 of
-the updated DTB is not yet recorded here.
+The current baseline runs `7.3.4-edge-rockchip64`. Display, touch, RTC,
+Wi-Fi, Bluetooth and fan behavior were hardware-validated on 2026-11-16.
 
 - LVDS remains connected and functional.
 - USB-C DP is not closed. The current `DP-1` state is disconnected, no
@@ -68,10 +66,14 @@ the updated DTB is not yet recorded here.
   HUSB311/RT1711H attach/detach cycles. A historical 4K30 success exists
   but is not reproducible on the final baseline.
 - Goodix GT9110 is fixed and hardware-validated at I2C4 `0x14` after
-  restoring the `vcc1v8_sys` and `vcc28_dvp` power paths.
+  restoring the `vcc1v8_sys` and `vcc28_dvp` power paths. For the 270-degree
+  portrait panel it uses `touchscreen-inverted-x` plus
+  `touchscreen-swapped-x-y`; the nine-target compositor test passes.
 - HYM8563 is fixed and hardware-validated at I2C4 `0x51` on the same shared
   power path.
 - I2C4 now works for LT9211 `0x2d`, GT9110 `0x14`, and HYM8563 `0x51`.
+- AP6275P Wi-Fi starts firmware `18.35.387.23.146` and connects with the
+  real HYM8563 LPO clock. Bluetooth identifies as BCM43752A2.
 
 See
 [`reports/mainline-open-issues-20261115-2130/README.md`](reports/mainline-open-issues-20261115-2130/README.md)
@@ -232,18 +234,21 @@ its existing disabled-eDP baseline until that model is validated.
 - dual-link LT9211 LVDS with odd/even pixel channels, factory DSI
   `BURST + LPM` flags and the optional board-level
   `lontium,dsi-mode-flags` property;
-- an always-on 32.768 kHz `wifi-lpo` fixed clock so AP6275P Wi-Fi/BT probing
-  does not depend on HYM8563 probe success;
+- AP6275P uses the real HYM8563 32.768 kHz CLKOUT; a late-load service
+  rescans PCIe and loads `brcmfmac` after the RTC late-bind completes;
 - PWM2 fan, PWM6 eDP backlight and PWM12 LVDS backlight;
 - SARADC keys, thermal protection and fan cooling maps.
 
 ## Known Limitations
 
 1. Linux 7.3 enables the available mainline NPU, RGA, JPEG encoder, VPU decoder, RKVDEC and AV1 nodes. RK3588 RKCIF/RKISP capture nodes and standalone RKVENC device nodes are not provided by this mainline release.
-2. The AP6275P PCIe device enumerates and the DTS no longer blocks it on HYM8563 probe. A full image with the matching module release still needs to validate actual Wi-Fi/BT probing.
-3. eDP0 is an optional internal-panel path. Linux 7.3 uses normal HPD/AUX
-   detection without forcing HPD. The panel description assumes EDID;
-   panels without EDID need explicit identification and timings.
+2. AP6275P Wi-Fi/BT passes cold-boot validation. The PCIe endpoint must be
+   rescanned after HYM8563 LPO is available; do not move `brcmfmac` probing
+   back before the RTC late-bind.
+3. The physical eDP route is disabled by default because no panel is fitted.
+   This avoids a transient HPD pulse injecting a 1024x768 no-EDID mode into
+   fbcon. An eDP SKU should enable the controller, VP2 and AUX-panel status
+   values in the same DTS; the panel is expected to provide EDID.
 4. The internal display is dual-link VESA-24 LVDS. Configuring only one
    link crops the desktop to half width and corrupts the pixel clock.
    The vendor mode-3 channel-enable value (`0x855c = 0x07`) is applied by

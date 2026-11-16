@@ -41,7 +41,7 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | 主存储 | 8 bit eMMC 5.1，HS400，不可移除 |
 | SD 卡 | 4 bit SDMMC，UHS SDR104，独立 3.3 V 供电控制 |
 | 内屏 | 15.6 吋竖屏；DSI1 4-lane → LT9211 → 双通道 odd/even 24 bit VESA LVDS。控制器扫描 1920×1080@60，DT 提供 270° 方向，桌面和 fbcon 均呈 1080×1920 竖屏 |
-| 备用内屏 | eDP0 是板级支持的可选内屏装配路径；同一 DTS 同时描述 VP2/eDP0，HPD/AUX 动态探测。当前 LVDS 面板与可选 eDP 面板互不伪造连接状态 |
+| 备用内屏 | eDP0 是板级物理接口和可选内屏装配路径；同一 DTS 保留 VP2/eDP0/AUX panel 拓扑，但默认将控制器与整条 route 标为 disabled |
 | 外部显示 | HDMI1、DP0（USB-C DP Alt Mode）；DP0 最终基线尚未稳定闭环 |
 | 有线网络 | GMAC0，RGMII，PHY 地址 1 |
 | PCIe | PCIe 2.0 x1 lane 1 与 lane 2，两路均启用 |
@@ -57,7 +57,7 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 
 ## Mainline 7.3 当前实测状态
 
-截至 `2026-11-16T14:51:00+08:00`，运行现场为
+截至 `2026-11-16T23:35:00+08:00`，运行现场为
 `7.3.4-edge-rockchip64`，U-Boot
 `2026.07-Sece3-P56fc-Hae08-V6f98-Bd800-R448a`。
 
@@ -67,9 +67,11 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | LVDS 内屏 | `LVDS-1 connected`，双链路画面正常 |
 | HDMI OUT | 当前未接显示器，`HDMI-A-1 disconnected` |
 | USB-C DP | **未闭环**。当前 `DP-1 disconnected`，Type-C partner 不存在；历史版本抓到过 4K30，当前基线不能复现稳定连接 |
-| GT9110 触控 | ✅ **已工作**。`ID 9110, version: 1050`，`/dev/input/input8` |
+| GT9110 触控 | ✅ **已工作**。`ID 9110`；随 270° 面板方向使用 `inverted-x + swapped-x-y`，九点映射验证通过 |
 | HYM8563 RTC | ✅ **已工作**。`registered as rtc0` |
 | I2C4 控制器 | `0x14` / `0x2d` / `0x51` 三点均为 `UU`，全部正常绑定 |
+| AP6275P Wi-Fi | ✅ **已工作**。固件 BCM43752/2 `18.35.387.23.146` 启动，`wlP4p65s0` 已连接 `HUAWEI-7409_5G` |
+| AP6275P Bluetooth | ✅ **已工作**。`hci0` 识别为 `BCM43752A2`，控制器已上电 |
 | TF 卡启动 | **未闭环**。见 [`u-boot-mainline/TF-BOOT-STATUS.md`](u-boot-mainline/TF-BOOT-STATUS.md) |
 
 ### I2C4 设备修复说明
@@ -86,6 +88,24 @@ mainline DTS 缺少原厂的模块供电拓扑：
 
 LT9211（`0x2d`）一直正常，是因为它挂在常开的 `vcc_1v8_s3` 上，不受
 `vcc1v8_sys` 开关影响——这个对照关系是定位问题的关键。
+
+GPIO1_D0 实际上是触摸/面板共用使能，不是 eDP 专属信号。当前 DTS 用
+独立常开的 `touch_panel_pwr` regulator 保持原厂上电状态，因此无论
+LVDS 装配还是未来 eDP 装配都适用。当前机型没有 eDP 面板，eDP0、
+VP2 endpoint、eDP in/out endpoint 和 AUX panel 均保留但默认
+`disabled`，避免瞬时 HPD 误判给 fbcon 注入 1024×768 fallback。
+
+触控方向不能只照搬原厂 DTB。原厂方向逻辑在 GT9xx 驱动中，而主线由
+`touchscreen-inverted-x`、`touchscreen-inverted-y`、
+`touchscreen-swapped-x-y` 组合表达。实机九点回归最终确定为：
+
+```dts
+touchscreen-inverted-x;
+touchscreen-swapped-x-y;
+```
+
+输入范围随 swap 变为 X=`0..1919`、Y=`0..1079`；GNOME 九宫格
+TL/TC/TR、ML/C/MR、BL/BC/BR 全部落在对应目标。
 
 修复细节见
 [`reports/uboot-tf-boot-power-20261116/README.md`](reports/uboot-tf-boot-power-20261116/README.md)
@@ -175,7 +195,7 @@ SATA0 / PCIe3 --> disabled
 | RTC 中断 | GPIO0_B0 | Low | HYM8563 interrupt |
 | 外部看门狗 | GPIO0_D3 | High | SGM760B GPIO watchdog，显式禁用 |
 | 触摸 reset | GPIO1_D3 | Low | GT9110 `reset-gpios` |
-| eDP 面板 enable | GPIO1_D0 | High | eDP panel `enable-gpios` |
+| 触摸/面板共用使能 | GPIO1_D0 | High | 常开 `touch_panel_pwr`，同时服务 LVDS 触摸和可选 eDP 面板 |
 | 触摸中断 | GPIO4_B0 | Low | GT9110 interrupt |
 | GMAC0 PHY reset | GPIO2_C4 | Low | Ethernet PHY reset |
 | LT9211 reset | GPIO3_A6 | High | DSI-to-LVDS bridge reset |
@@ -252,9 +272,8 @@ RK3588 内部 DW watchdog `watchdog@feaf0000` 也按原厂状态在三套 DTS �
 
 工厂 DTB 同时描述两条可选内屏路径：DSI1/LT9211/LVDS 与 VP2/eDP0。
 当前 BOM 默认装配 LVDS 方案。7.3 在同一份 DTS 中保留完整的 eDP0、
-VP2、PWM6 背光和面板 enable 描述，但不设置 `force-hpd`/`no-hpd`：
-未装配 eDP 面板时由 HPD/AUX 报为 disconnected，装配面板后正常 probe。
-6.1 当前仍按既有 vendor 基线默认关闭 eDP；迁移到同一模型前需实机确认。
+VP2、PWM6 背光和 AUX panel 描述，但默认全部 disabled；启用实际 eDP
+组件时只需在同一份 DTS 中打开这些状态，不需要重建 route。
 
 ## Linux 7.3 移植内容
 
@@ -275,19 +294,20 @@ VP2、PWM6 背光和面板 enable 描述，但不设置 `force-hpd`/`no-hpd`：
 - LT9211 DSI→LVDS、GT9110 触摸、HYM8563 RTC、ES8388 声卡；
 - LT9211 双通道 odd/even LVDS、原厂 DSI `BURST + LPM` flags 和板级可配置
   `lontium,dsi-mode-flags`；
-- AP6275P 使用常开 32.768 kHz `wifi-lpo` fixed-clock，避免 Wi‑Fi/BT
-  被 HYM8563 的 probe 状态阻塞；
+- AP6275P 使用 HYM8563 的真实 32.768 kHz CLKOUT；RTC 晚绑定后才重新
+  扫描 PCIe 并加载 `brcmfmac`，避免在 LPO 未运行时形成 inactive link；
 - PWM2 风扇、PWM6 eDP 背光、PWM12 LVDS 背光；
 - SARADC 与 GPIO 按键、温度保护和风扇冷却映射。
 
 ## 已知限制
 
 1. 7.3 已启用 mainline 提供的 NPU、RGA、JPEG 编码、VPU 解码、RKVDEC 和 AV1 节点；RKCIF/RKISP 采集链与独立 RKVENC 节点在该版本的 RK3588 DTSI 中尚未提供。
-2. AP6275P PCIe 设备可枚举，DTS 已解除对 HYM8563 probe 的强依赖；仍需用模块版本匹配的完整镜像验证 Wi‑Fi/BT 实际 probe。
-3. eDP0 是可选内屏路径，7.3 使用 HPD/AUX 动态探测且不强制 HPD。
-   当前描述假定装配面板提供 EDID；无 EDID 的面板必须补充准确型号
-   和时序。若实测板级没有把 eDP HPD 接到控制器，再单独增加 HPD GPIO
-   或受控的 `no-hpd` 回退，不能默认伪造已连接。
+2. AP6275P Wi‑Fi/BT 已通过冷启动验证。BCM43752 的 PCIe endpoint 必须等
+   HYM8563 LPO 生效后再扫描；不要把启动顺序改回早期直接 probe。
+3. eDP0 物理接口存在，但当前装配没有面板，因此默认整条 route disabled。
+   这样可以避免空接口在冷启动时瞬时误报 connected，导致 fbcon 固定在
+   1024×768。装配 eDP 面板时需在同一 DTS 中启用 eDP0、VP2 和 AUX
+   panel 状态；面板应提供 EDID，无 EDID 时必须补准确时序。
 4. 内屏是双通道 VESA-24 LVDS。只配一条 LVDS link 会把桌面裁成半幅并使像素时基错乱；原厂 mode 3 的 `0x855c = 0x07` 通道使能已由板级内核补丁补齐。
 5. Type-C DP 未闭环。历史双 lane 配置曾验证 4K30，但当前最终基线在
    Type-C partner/Alt Mode 阶段反复 attach/detach，`DP-1` 常保持

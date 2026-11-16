@@ -110,7 +110,7 @@
 		pinctrl-0 = <&edp_backlight_en>;
 		power-supply = <&vcc_3v3_s3>;
 		pwms = <&pwm6 0 25000 0>;
-		status = "okay";
+		status = "disabled";
 	};
 
 	chosen {
@@ -121,19 +121,6 @@
 		compatible = "fixed-clock";
 		clock-frequency = <27000000>;
 		clock-output-names = "CLK_CAMERA_27MHZ";
-		#clock-cells = <0>;
-	};
-
-	/*
-	 * The AP6275P LPO is a hardware 32.768 kHz clock.  HYM8563 may not
-	 * answer on I2C early enough (or at all on a cold boot), but its clock
-	 * output is autonomous.  Do not make WiFi/Bluetooth probe depend on
-	 * the RTC driver being ready.
-	 */
-	wifi_lpo: wifi-lpo {
-		compatible = "fixed-clock";
-		clock-frequency = <32768>;
-		clock-output-names = "wifi-lpo";
 		#clock-cells = <0>;
 	};
 
@@ -316,6 +303,22 @@
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 		vin-supply = <&vcc_3v3_s3>;
+	};
+
+	/*
+	 * GPIO1_D0 is a shared touch and panel power enable, not an eDP-only
+	 * signal.  Keep its factory boot state independently of display
+	 * routing so removing an optional panel cannot disable touch.
+	 */
+	touch_panel_pwr: regulator-touch-panel-pwr {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio1 RK_PD0 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_panel_en>;
+		regulator-name = "touch_panel_pwr";
+		regulator-always-on;
+		regulator-boot-on;
 	};
 
 	vcc3v3_pcie: regulator-vcc3v3-pcie {
@@ -602,27 +605,27 @@
 
 &edp0 {
 	/*
-	 * eDP0 is a factory-supported optional internal panel route on VP2.
-	 * Keep HPD/AUX dynamic: an unpopulated eDP assembly stays disconnected
-	 * instead of becoming a phantom connected display, while a fitted panel
-	 * is probed normally.
+	 * This assembly has no eDP panel.  Its internal display is
+	 * DSI1 -> LT9211 -> dual-link LVDS.  Keep eDP off by default so a
+	 * transient HPD pulse cannot make DRM add a 1024x768 fallback and
+	 * leave fbcon stuck in that mode.  GPIO1_D0 is still kept asserted by
+	 * touch_panel_pwr because it enables both the touch module and panel.
 	 */
-	status = "okay";
+	status = "disabled";
 
 	aux-bus {
 		panel {
 			compatible = "edp-panel";
 			backlight = <&backlight_edp>;
-			enable-gpios = <&gpio1 RK_PD0 GPIO_ACTIVE_HIGH>;
 			hpd-absent-delay-ms = <120>;
 			power-supply = <&vcc_3v3_s3>;
-			pinctrl-names = "default";
-			pinctrl-0 = <&edp_panel_en>;
 			rotation = <270>;
+			status = "disabled";
 
 			port {
 				panel_in_edp: endpoint {
 					remote-endpoint = <&edp0_out_panel>;
+					status = "disabled";
 				};
 			};
 		};
@@ -632,12 +635,14 @@
 &edp0_in {
 	edp0_in_vp2: endpoint {
 		remote-endpoint = <&vp2_out_edp0>;
+		status = "disabled";
 	};
 };
 
 &edp0_out {
 	edp0_out_panel: endpoint {
 		remote-endpoint = <&panel_in_edp>;
+		status = "disabled";
 	};
 };
 
@@ -835,6 +840,8 @@
 		status = "okay";
 		touchscreen-size-x = <1080>;
 		touchscreen-size-y = <1920>;
+		touchscreen-inverted-x;
+		touchscreen-swapped-x-y;
 	};
 
 	hym8563: rtc@51 {
@@ -1047,7 +1054,7 @@
 				     "brcm,bcm43752-fmac",
 				     "brcm,bcm4329-fmac";
 			reg = <0x410000 0 0 0 0>;
-			clocks = <&wifi_lpo>;
+			clocks = <&hym8563>;
 			clock-names = "lpo";
 		};
 	};
@@ -1148,10 +1155,6 @@
 	};
 
 	edp {
-		edp_panel_en: edp-panel-en {
-			rockchip,pins = <1 RK_PD0 RK_FUNC_GPIO &pcfg_pull_up>;
-		};
-
 		edp_backlight_en: edp-backlight-en {
 			rockchip,pins = <4 RK_PB6 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
@@ -1182,6 +1185,10 @@
 	};
 
 	touch {
+		touch_panel_en: touch-panel-en {
+			rockchip,pins = <1 RK_PD0 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+
 		vcc1v8_sys_en: vcc1v8-sys-en {
 			rockchip,pins = <0 RK_PC0 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
@@ -1602,7 +1609,7 @@
 
 	bluetooth {
 		compatible = "brcm,bcm4345c5";
-		clocks = <&wifi_lpo>;
+		clocks = <&hym8563>;
 		clock-names = "lpo";
 		device-wakeup-gpios = <&gpio0 RK_PC5 GPIO_ACTIVE_HIGH>;
 		host-wakeup-gpios = <&gpio0 RK_PA0 GPIO_ACTIVE_HIGH>;
@@ -1734,6 +1741,7 @@
 	vp2_out_edp0: endpoint@ROCKCHIP_VOP2_EP_EDP0 {
 		reg = <ROCKCHIP_VOP2_EP_EDP0>;
 		remote-endpoint = <&edp0_in_vp2>;
+		status = "disabled";
 	};
 };
 
