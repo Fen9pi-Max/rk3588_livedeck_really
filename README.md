@@ -16,6 +16,10 @@ vendor 6.1 的现有修复、7.3 回移项与明确不适用项见
 2026-11-15 的 mainline 实机未闭环问题、现场日志和已排除项见
 [`reports/mainline-open-issues-20261115-2130/README.md`](reports/mainline-open-issues-20261115-2130/README.md)。
 
+HDMI IN 两路（面板内置 HDMIRX / 内部 LT6911UXC2）的待办、已排除项与
+验收标准见
+[`reports/hdmi-in-dual-path-20261116/README.md`](reports/hdmi-in-dual-path-20261116/README.md)。
+
 ## 版本目录
 
 | 目录 | 目标系统 | 主要差异 |
@@ -164,15 +168,22 @@ VOP2 VP3 --> DSI1 4-lane --> LT9211 --> dual-link LVDS 24-bit
                                   15.6-inch portrait panel
 ```
 
-HDMI 输入：
+HDMI 输入（两条独立通路，物理口不同）：
 
 ```text
-HDMI IN --> RK3588 built-in HDMI RX --> V4L2 capture
-HDMI audio --> I2S7 --> rockchip,hdmiin sound card
+面板 HDMI IN --> RK3588 built-in HDMI RX @fdee0000 --> V4L2 capture
+HDMI audio   --> I2S7 --> rockchip,hdmiin sound card
 
-Lontium LT6911UXC2 secondary path:
-HDMI IN --> LT6911UXC2 --> MIPI DPHY0 --> MIPI CSI2 #2 --> RKCIF2
+机身内部隐藏口（不引到面板）
+             --> LT6911UXC2 @I2C6 0x2b
+             --> MIPI DPHY0 --> MIPI CSI2 #2 --> RKCIF2
 ```
+
+面板口拆机确认无 LT6911 桥接芯片，直连 SoC 内置 HDMIRX；
+LT6911UXC2 只存在于机身内部的隐藏接口。Android 下自写
+`hdmi-viewer` 走的就是内置 HDMIRX（`/dev/video31`，用 `VIDIOC_S_EDID`）。
+两路 mainline 均未闭环，见
+[`reports/hdmi-in-dual-path-20261116/README.md`](reports/hdmi-in-dual-path-20261116/README.md)。
 
 存储与扩展：
 
