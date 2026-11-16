@@ -10,7 +10,7 @@
 ## 一、结论摘要
 
 面板 HDMI IN **不是 LT6911 桥接**，而是 RK3588 SoC 内置 HDMIRX
-（`hdmirx_ctrler` @ `fdee0000`）。LT6911UXC2 属于机身内部的**隐藏第二路**，
+（`hdmirx_ctrler` @ `fdee0000`）。LT6911C 属于机身内部的**隐藏第二路**，
 不引到面板。两路互相独立，不能混为一谈。
 
 两个待办，优先级不同：
@@ -18,7 +18,7 @@
 | # | 待办 | 物理口 | 状态 |
 |---|---|---|---|
 | 1 | 面板 HDMI IN（内置 HDMIRX）mainline 无法出图 | 面板 | **P0，未闭环** |
-| 2 | 内部隐藏 HDMI IN（LT6911UXC2 → CSI）mainline 无驱动 | 机身内部 | P2，低优先 |
+| 2 | 内部隐藏 HDMI IN（LT6911C → CSI）驱动未编译 | 机身内部 | P2，低优先 |
 
 **此前的错误结论已撤回**：曾记为「原厂 5.10 dtb 未启用 HDMI RX，所以
 HDMI IN 不可用」。这与事实不符——原厂 `hdmirx_ctrler` 一直是
@@ -34,7 +34,7 @@ HDMI IN 不可用」。这与事实不符——原厂 `hdmirx_ctrler` 一直是
 面板 HDMI IN ──────> RK3588 SoC 内置 HDMIRX @ fdee0000
                      （无桥接芯片，直连 SoC）
 
-机身内部隐藏口 ────> LT6911UXC2 @ I2C6 0x2b ──> MIPI CSI-2
+机身内部隐藏口 ────> LT6911C @ I2C6 0x2b ──> MIPI CSI-2
                      （csi2_dphy0 -> mipi2_csi2 -> rkcif_mipi_lvds2）
 ```
 
@@ -245,7 +245,7 @@ pinctrl 逐项对照（原厂 DTB vs mainline `rk3588-base-pinctrl.dtsi`）：
 先前的「引脚不一致」判断是把 `323` 误读成 gpio1 bank 编号导致的，
 已撤回。排查方向应从引脚转向 TF-A 与驱动绑定。
 
-## 四、待办 2（P2）：内部隐藏 HDMI IN（LT6911UXC2）
+## 四、待办 2（P2）：内部隐藏 HDMI IN（LT6911C）
 
 优先级低——该口未引到面板，用户日常不可达，但设备树已写入且会造成
 无效 probe。
@@ -274,18 +274,25 @@ pinctrl 逐项对照（原厂 DTB vs mainline `rk3588-base-pinctrl.dtsi`）：
 
 ### 4.2 阻塞点
 
-- mainline 7.3 内核**没有** `lontium,lt6911uxc2` 驱动。
-  `/lib/modules/7.3.4-edge-rockchip64/` 下无任何匹配模块，
-  `modules.alias` 无对应条目 → 该节点静默不 probe。
-- vendor 5.10 有 `drivers/media/i2c/lt6911uxc.c`（compatible 为
-  `lontium,lt6911uxc`，**注意不是 `lt6911uxc2`**），移植需重写。
+芯片丝印已确认 **LT6911C**，据此外部核对（详见 §4z.2）：
+
+- **vendor 6.1 有 `lt6911c.c` 驱动**（compatible `lontium,lt6911c`，
+  校验芯片 ID `0x0516` @ 寄存器 `0xA000`），但配置里
+  `# CONFIG_VIDEO_LT6911C is not set` —— **驱动从未被编译**。
+- DTS 写的 `lontium,lt6911uxc2` 与任何驱动都不匹配。
+  原厂也是这么写的，说明原厂用的是一份 ODM 私有驱动，我们没有。
+- LT6911C 与 LT6911UXC 读不同寄存器（`0xA000` vs `0x8100`），
+  **不能**用 `lt6911uxc.c` 顶替，必须用 `lt6911c.c`。
+- 中断极性当前写 `LEVEL_LOW`，原厂是 `LEVEL_HIGH`。
 - CSI 链路需同步启用：`csi2_dphy0` → `mipi2_csi2` → `rkcif_mipi_lvds2`。
-  原厂 `&rkcif_mipi_lvds2` 走 `mipi2_csi2_output`。
+  7.3 这三处一个都没启用。
 
 ### 4.3 建议
 
 若短期不做，**建议把该节点改为 `status = "disabled"`**，
 避免一个永远 probe 失败的设备污染 dmesg 启动日志。
+
+若要做，最小改动见 §4z.3 第 3 条。
 
 ---
 
@@ -348,42 +355,89 @@ patch/kernel/rk35xx-vendor-6.1/dt/rk3588-really.dts              # vendor 6.1
 CEC(GPIO3_D1)/SCL(GPIO3_D2)/SDA(GPIO3_D3)/HPDIN(GPIO3_D4) 四根，
 DET 单独在 `hdmirx_det`。**与原厂完全对齐，配置正确。**
 
-### 4z.2 内部隐藏口（LT6911UXC2）—— 两边都有问题
+### 4z.2 内部隐藏口 —— 芯片丝印已确认为 LT6911C
 
-**共同问题：compatible 字符串没有任何驱动支持。**
+用户拆机确认丝印为 **LT6911C**（不是 UXC2）。按此重新核对，结论变了：
+vendor 6.1 **有**匹配的驱动，问题出在内核配置和 compatible 字符串上。
 
-构建树里 vendor 6.1 自带三个 Lontium 驱动，of_match 分别是：
+#### 驱动侧事实
+
+vendor 6.1 自带三个 Lontium 驱动，各自校验不同的芯片 ID：
+
+| 驱动 | compatible | 芯片 ID 寄存器 | 期望值 |
+|---|---|---|---|
+| `lt6911c.c` | `lontium,lt6911c` | `0xA000`/`0xA001` | `0x0516` |
+| `lt6911uxc.c` | `lontium,lt6911uxc` | `0x8100`/`0x8101` | `0x0417` |
+| `lt6911uxe.c` | `lontium,lt6911uxe` | — | — |
+
+**关键：LT6911C 与 LT6911UXC 读的是完全不同的寄存器地址**
+（`0xA000` vs `0x8100`）。所以**不能**靠改 compatible 蒙混，
+必须用对驱动——幸好 `lt6911c.c` 已经存在。
+
+#### 真正的问题：驱动没被编译
 
 ```text
-drivers/media/i2c/lt6911c.c:1484     .compatible = "lontium,lt6911c"
-drivers/media/i2c/lt6911uxc.c:1639   .compatible = "lontium,lt6911uxc"
-drivers/media/i2c/lt6911uxe.c:2721   .compatible = "lontium,lt6911uxe"
+config/kernel/linux-rk35xx-vendor.config:1819  CONFIG_VIDEO_LT6911UXC=y
+config/kernel/linux-rk35xx-vendor.config:1820  CONFIG_VIDEO_LT6911UXE=m
+（无 CONFIG_VIDEO_LT6911C）
+
+worktree .config:5138  # CONFIG_VIDEO_LT6911C is not set
 ```
 
-但两份 DTS 都写的是 **`compatible = "lontium,lt6911uxc2"`**。
-在 6.1 整棵驱动树 grep `lt6911uxc2` —— **零命中**。
-即：即便 6.1 有 LT6911 驱动，这个节点也永远不会 probe。
+驱动源码在、Makefile 和 Kconfig 都在，但**配置没打开**，所以 `lt6911c.o`
+从未被编译。DTS 里写 `lontium,lt6911uxc2` 或 `lontium,lt6911c` 都一样，
+因为根本没有这个驱动参与匹配。
 
-**7.3 更严重**：
+CSI 子系统本身是齐的：
 
-- 设备树写了 `&csi2 { status = "okay" }` + `lt6911@2b status = "okay"`，
-  但 **`csi2_dphy0` / `mipi2_csi2` / `rkcif_mipi_lvds2` 一个都没引用**，
-  整条 CSI 管道是断的（无 `status = "okay"`）。
-- 内核 `linux-rockchip64-edge.config` 里 `CONFIG_VIDEO_LT6911UXE` 未设置，
-  且该版本 `lt6911uxe.c` 只有 **ACPI 匹配**（`MODULE_DEVICE_TABLE(acpi, ...)`），
-  **没有 of_match 表**，DT 描述根本走不到。
+```text
+CONFIG_VIDEO_ROCKCHIP_CIF=y
+CONFIG_PHY_ROCKCHIP_CSI2_DPHY=y
+```
+
+#### DTS 侧：compatible 写错，引脚基本正确
+
+原厂 DTB 里 `lt6911uxc2@2b` 的 compatible 也是 `lontium,lt6911uxc2`——
+说明**原厂用的是一份我们没有的厂商驱动**（厂商把 C 版芯片挂在 uxc2
+的 compatible 下，属于 ODM 私有的绑定方式）。vendor 6.1 主线化的
+`lt6911c.c` 用的是规范的 `lontium,lt6911c`，两者不通用。
+
+引脚对照（原厂 DTB 解码 vs 当前 DTS）：
+
+| 属性 | 原厂 | 当前 6.1/7.3 DTS | 结果 |
+|---|---|---|---|
+| `reset-gpios` | gpio3 pin7 = GPIO3_A7, ACTIVE_HIGH | `<&gpio3 RK_PA7 GPIO_ACTIVE_HIGH>` | ✅ 一致 |
+| `hpd-ctl-gpios` | gpio2 pin19 = GPIO2_C3, ACTIVE_HIGH | `<&gpio2 RK_PC3 GPIO_ACTIVE_HIGH>` | ✅ 一致 |
+| `interrupts` 引脚 | gpio1 pin23 = GPIO1_C7 | `<&gpio1 RK_PC7>` | ✅ 引脚一致 |
+| `interrupts` 极性 | `0x04` = LEVEL_**HIGH** | `IRQ_TYPE_LEVEL_**LOW**` | ❌ **极性相反** |
+| `compatible` | `lontium,lt6911uxc2`（私有） | 同 | ⚠️ 无匹配驱动 |
+
+#### 7.3 另外还缺东西
+
+- 设备树写了 `&csi2 { status = "okay" }`，但
+  **`csi2_dphy0` / `mipi2_csi2` / `rkcif_mipi_lvds2` 一个都没启用**，
+  CSI 管道是断的。
+- `linux-rockchip64-edge.config` 没有 `CONFIG_VIDEO_LT6911C`，
+  且该版本 `lt6911uxe.c` 只有 ACPI 匹配表、无 of_match。
 - 已装内核 `/lib/modules/7.3.4-edge-rockchip64/` 下无任何 lt6911 模块。
 
-**结论：内部隐藏口在两条线上都不可用，且不是改一个属性就能修好的。**
+### 4z.3 建议（按优先级）
 
-### 4z.3 建议
+面板口 P0 不受影响，以下是内部口的独立工作项：
 
-1. 面板口 P0 保持现状 DTS，排查直接跳到 TF-A / 驱动绑定，不要再动引脚。
-2. 内部口若短期不做，**两份 DTS 都建议置 `status = "disabled"`**，
-   避免一个永远 probe 失败的节点污染启动日志。
-3. 若要做，先解决 compatible：要么把 DTS 改成 `lontium,lt6911uxc`
-   （匹配 vendor 现有驱动，但那是 UXC 不是 UXC2，寄存器可能不同），
-   要么给 6.1 的 `lt6911uxc.c` 增加 `lt6911uxc2` 兼容项。**需先确认芯片丝印。**
+1. **面板口 DTS 保持不动**，排查直接跳 TF-A / 驱动绑定，不要再动引脚。
+2. **内部口短期不做 → 两份 DTS 都置 `status = "disabled"`**，
+   避免 dmesg 噪音。
+3. **要做的话，最小改动路径（vendor 6.1）**：
+   - 打开 `CONFIG_VIDEO_LT6911C=y`（Kconfig 依赖：`VIDEO_DEV && I2C`，
+     select `HDMI`/`MEDIA_CONTROLLER`/`VIDEO_V4L2_SUBDEV_API`/`V4L2_FWNODE`，
+     这些在 vendor 配置里都满足）；
+   - DTS 把 `compatible` 改成 `lontium,lt6911c`；
+   - 中断极性按原厂改成 `IRQ_TYPE_LEVEL_HIGH`（需实测确认）；
+   - CSI 链路 `csi2_dphy0` / `mipi2_csi2` / `rkcif_mipi_lvds2` 全部使能。
+4. **验证芯片 ID**：驱动 probe 会打 `check chipid ok, id:0x516`。
+   若打出 `chipid err, read:0xXXXX, expect:0x516`，说明丝印判断有误，
+   需回头核对是不是真的 C 版。
 
 ## 五、与既往结论的差异记录（避免重复踩坑）
 
@@ -393,6 +447,9 @@ drivers/media/i2c/lt6911uxe.c:2721   .compatible = "lontium,lt6911uxe"
 | 面板 HDMI IN 走 LT6911UXC | **错**。面板走内置 HDMIRX，LT6911 在内部隐藏口 | 拆机 + `hdmirx.cpp` 用 `VIDIOC_S_EDID` |
 | 192.168.3.28 是 Really | **错**。是 Skysi X5（`rk3588-skysi-x5`） | `armbianEnv.txt` / `compatible` |
 | mainline DTS 未写 HDMI IN | **错**。7.3 和 6.1 dts 都已写，且 `okay` | `dts-7.3-linux/rk3588-really.dts:687` |
+| 内部口芯片是 LT6911UXC2 | **错**。拆机丝印是 **LT6911C** | 用户拆机确认 |
+| 原厂 HPD 用 gpio1 RK_PD6，与 mainline 不一致 | **错**。`323`=phandle 指向 gpio4，实际同为 GPIO4_C6 | 原厂 DTB 反查 `phandle = <0x143>` |
+| 内部口没有可用驱动 | **错**。vendor 6.1 有 `lt6911c.c`，只是 `CONFIG_VIDEO_LT6911C` 未开 | worktree `.config:5138` |
 
 ---
 
