@@ -117,9 +117,21 @@ VDDIO-supply  = <&vcc1v8_sys>;  /* 1.8V */
 
 ### 验证状态
 
-**未上机验证。** 本地没有 6.1 的 dtsi 可供编译，只做了结构校验：
-大括号净差 0、无重复 label、未定义 label 数（25）与改动前一致。
-上机后需确认 `i2cdetect -y 4` 能看到 `0x14` 与 `0x51`。
+**已编译通过，未上机。**
+
+两棵 6.1 树都已用真实内核源码编译出 DTB，0 error：
+
+```bash
+cd cache/sources/linux-kernel-worktree/6.1__rk35xx__arm64
+make ARCH=arm64 rockchip/rk3588-really.dtb          # 299021 字节
+make ARCH=arm64 rockchip/rk3588-really-android.dtb  # 299343 字节
+```
+
+反编译产物确认 50 个 regulator，`vcc1v8_sys` / `touch_panel_pwr` 均在，
+触控节点内 `AVDD28-supply` 指向 `vcc28_dvp`、`VDDIO-supply` 指向
+`vcc1v8_sys`，phandle 解析正确。
+
+上机后仍需确认 `i2cdetect -y 4` 能看到 `0x14` 与 `0x51`。
 
 完整分析见
 [`../docs/DTS-POWER-RESTORE-20261117.md`](../docs/DTS-POWER-RESTORE-20261117.md)。

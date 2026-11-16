@@ -103,34 +103,51 @@ VDDIO-supply  = <&vcc1v8_sys>;  /* 1.8V */
 
 ## 三、验证
 
-### 3.1 编译验证
+### 3.1 编译验证（三套真实内核，全部通过）
 
-7.3 用真实内核树编译：
+不再依赖结构性检查——三个版本都已用各自对应的真实内核树编译出 DTB，
+**0 error**。
 
-```bash
-make ARCH=arm64 rockchip/rk3588-really.dtb
-  DTC     arch/arm64/boot/dts/rockchip/rk3588-really.dtb
+| 版本 | 内核树 | 命令 | 结果 |
+|---|---|---|---|
+| 5.10 android | `/home/user/workspace/device/rk3588-really-tvi2340r/sdk/linux-5.10` | `cpp` + `dtc` | 200704 字节，0 error |
+| 6.1 linux | `cache/sources/linux-kernel-worktree/6.1__rk35xx__arm64` | `make ARCH=arm64 rockchip/rk3588-really.dtb` | 299021 字节，0 error |
+| 6.1 android | 同上 | `make ARCH=arm64 rockchip/rk3588-really-android.dtb` | 299343 字节，0 error |
+| 7.3 linux | `cache/sources/linux-kernel-worktree/7.3__rockchip64__arm64` | `make ARCH=arm64 rockchip/rk3588-really.dtb` | 212190 字节，0 error |
+
+5.10 的 SDK 有一个悬空软链接
+（`include/dt-bindings/input/linux-event-codes.h` 指向缺失的
+`uapi/linux/input-event-codes.h`），编译时用 6.1 的同名头文件放到临时
+include 路径绕开，**未修改 SDK 原件**。
+
+### 3.2 DTB 内容验证
+
+编译产物反编译后逐项确认：
+
+```text
+版本        regulator  vcc1v8_sys  touch_panel_pwr
+5.10           48          有            有
+6.1 linux      50          有            有
+6.1 android    50          有            有
+7.3 linux      52          有            有
 ```
 
-**零 warning、零 error**。产物 212190 字节，DTB 内 regulator 52 个。
+触控供电 phandle 解析结果（三个版本一致）：
 
-5.10 / 6.1 无法在本地编译（缺对应版本的 dtsi），改用结构校验：
-大括号净差 0、无重复 label、未定义 label 数量与改动前一致
-（29/25，全部来自 dtsi）。
+```text
+5.10 :  AVDD28-supply -> vcc28_dvp    VDDIO-supply -> vcc1v8_sys
+6.1  :  AVDD28-supply -> vcc28_dvp    VDDIO-supply -> vcc1v8_sys
+```
 
-### 3.2 覆盖度对比
+触控坐标保持原厂值：
 
-| 版本 | 板级 regulator | 相对原厂缺口 |
-|---|---|---|
-| 原厂 | 23 | — |
-| 5.10 | 27 | 0（`vcc1c8_en` 由 `vcc1v8_sys` 等价替代） |
-| 6.1 android | 29 | 0（同上） |
-| 6.1 linux | 29 | 0（同上） |
-| 7.3 | 52 | 0（同上） |
+```text
+5.10    max-x = <0x780> (1920)   max-y = <0x438> (1080)
+6.1     touchscreen-size-x = <0x780>  touchscreen-size-y = <0x438>
+```
 
-剩余"缺失"项均为 PMIC 内部轨（`vcc_1v8_s0`、`vcc_3v3_s3`、
-`vccio_sd_s0`、`vdd_gpu_s0` 等），由 `rk806` 驱动按 PMIC 型号动态注册，
-不需在板级 DTS 中声明。
+6.1 的两棵树上 `AVDD28-supply` / `VDDIO-supply` 已验证位于
+`touchscreen@14` 节点内部，而非此前误插的 backlight 节点。
 
 ### 3.3 GPIO 一致性
 
@@ -152,10 +169,21 @@ make ARCH=arm64 rockchip/rk3588-really.dtb
 
 ## 四、未验证项
 
-- **5.10 / 6.1 未实机验证**。本地无法编译这两版 DTS，只做了结构校验。
-  上机后需确认 `i2cdetect -y 4` 能看到 `0x14`(GT9110) 和 `0x51`(HYM8563)，
-  且触控可用、RTC 走时正常。
-- **5.10 触控坐标需实测**。虽然与原厂一致，但 5.10 的 gt9xx 驱动行为
-  与 mainline 不同，方向需上机确认。
-- **7.3 已编译通过但未上机**。新增的虚拟轨不驱动引脚，风险低，
+四棵树都已编译通过，**但全部未上机**。编译只能证明语法和引用正确，
+不能证明电源真的拉起来了。
+
+- **5.10 / 6.1 上机验证**。需确认 `i2cdetect -y 4` 能看到 `0x14`(GT9110)
+  和 `0x51`(HYM8563)，且触控可用、RTC 走时正常。
+- **5.10 触控坐标需实测**。虽然 `max-x/max-y` 与原厂一致（1920/1080），
+  但 5.10 的 gt9xx 驱动行为与 mainline 不同，方向需上机确认。
+- **7.3 已编译但未启动**。新增的虚拟轨不驱动引脚，风险低，
   但仍应在下次启动时确认 `regulator_summary` 无异常。
+
+上机排查第一步统一是：
+
+```bash
+cat /sys/kernel/debug/regulator/regulator_summary | grep -E "vcc1v8_sys|vcc28_dvp|touch_panel"
+```
+
+三个轨都应显示 `enabled` 且有电压。若 `vcc1v8_sys` 未使能，先查
+GPIO0_C0 的 pinctrl 是否生效——7.3 早期就是漏了 pinctrl 导致引脚从未被驱动。
