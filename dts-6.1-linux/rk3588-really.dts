@@ -75,8 +75,6 @@
 		enable-gpios = <&gpio3 RK_PB4 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&lt9211_backlight_pin>;
-		AVDD28-supply = <&vcc28_dvp>;
-		VDDIO-supply = <&vcc1v8_sys>;
 		pwms = <&pwm12 0 1000000 0>;
 	};
 
@@ -884,7 +882,8 @@
 		interrupts = <RK_PB0 IRQ_TYPE_LEVEL_LOW>;
 		reset-gpios = <&gpio1 RK_PD3 GPIO_ACTIVE_LOW>;
 		irq-gpios = <&gpio4 RK_PB0 GPIO_ACTIVE_LOW>;
-		power-supply = <&vcc_3v3_s3>;
+		AVDD28-supply = <&vcc28_dvp>;
+		VDDIO-supply = <&vcc1v8_sys>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&gt9xx_gpios>;
 		touchscreen-size-x = <1920>;
