@@ -55,7 +55,7 @@ HDMI IN 不可用」。这与事实不符——原厂 `hdmirx_ctrler` 一直是
                  &hdmim1_rx_sda &hdmirx_det>;
     status = "okay";                      # ← 原厂是启用的
     hpd-trigger-level = <1>;
-    hdmirx-det-gpios = <323 22 1>;        # &gpio1 RK_PD6 ACTIVE_LOW
+    hdmirx-det-gpios = <323 22 1>;        # 323=0x143=&gpio4, pin22 -> GPIO4_C6, ACTIVE_LOW
 };
 
 lt6911uxc2: lt6911uxc2@2b {               # 行 863，内部隐藏口
@@ -208,28 +208,42 @@ sudo dmesg | tail -30
    上游 open-source TF-A 对此的支持程度需核实
    （参考 `dts-6.1-linux/FIXES.md`、`AI-HANDOVER-CHECKLIST:579`
    已记录「HDMI IN mainline 仍需 open-source TF-A HDMIRX 支持」）。
-2. **对比 vendor 与 mainline 的 hpd 属性**：
-   原厂是 `hpd-trigger-level = <1>` + `hdmirx-det-gpios = <&gpio1 RK_PD6 ACTIVE_LOW>`；
-   mainline 用的是 `hpd-gpios = <&gpio4 RK_PC6 ACTIVE_LOW>` + `hpd-is-active-low`。
-   引脚和属性名都不同，需确认哪个才是本板真实走线。**这是首要差异点。**
+2. **HPD 属性名差异（引脚一致，已核实）**：
+   原厂 `hdmirx-det-gpios = <&gpio4 RK_PC6 ACTIVE_LOW>` + `hpd-trigger-level = <1>`；
+   mainline `hpd-gpios = <&gpio4 RK_PC6 GPIO_ACTIVE_LOW>` + `hpd-is-active-low`。
+   **引脚完全相同**，只是 vendor 私有属性名换成了 mainline 的通用 `hpd-gpios`。
+   这一点不构成差异，无需再查。
 3. **userspace**：mainline 用 `snps,dw-hdmi-rx` 标准 V4L2 接口，
    与 vendor `rk_hdmirx` 的 `hdmirx/hdmirx/*` sysfs 和私有 ioctl 不兼容。
    现有 `hdmi-viewer` App 的 `VIDIOC_S_EDID` 路径需重新对接。
 
-### 3.6 首查项：HPD 引脚冲突
+### 3.6 已核实：HPD 引脚与原厂一致，不是差异点
 
-原厂 `hdmirx-det-gpios = <323 22 1>` → **`&gpio1 RK_PD6`**，
-mainline 写 `hpd-gpios = <&gpio4 RK_PC6>` → **GPIO4_C6**。
+原厂 DTB 解析（`dtb-5.10-android/rk3588-really.dtb`）：
 
-两者不是同一根引脚。需先确认：
+```text
+hdmirx-det-gpios = <0x143 0x16 0x01>
+  0x143 = 323 -> phandle，反查是 gpio@fec50000 = gpio4
+  0x16  = 22  -> pin 22
+  0x01        -> GPIO_ACTIVE_LOW
+=> GPIO4_C6 ACTIVE_LOW
+```
 
-- Really 面板 HDMI IN 的 HPD/检测脚究竟接 GPIO1_D6 还是 GPIO4_C6；
-- 原厂 `pinctrl-0` 用的是 `hdmim1_*`，mainline 也写 `hdmim1_*`，这一项一致；
-- 若 mainline 指错引脚，HPD 永远读不到插入，驱动会直接 probe 失败或静默。
+mainline 7.3 DTS 写的是 `hpd-gpios = <&gpio4 RK_PC6 GPIO_ACTIVE_LOW>`，
+**同一根引脚**。
 
-**建议第一步就用万用表/原厂 sysfs 确认该脚实际编号。**
+pinctrl 逐项对照（原厂 DTB vs mainline `rk3588-base-pinctrl.dtsi`）：
 
----
+| 信号 | 原厂 | mainline `hdmim1_rx_*` | 结果 |
+|---|---|---|---|
+| HPDIN | bank3 pin28 = GPIO3_D4 | `<3 RK_PD4 5>` = GPIO3_D4 | 一致 |
+| SCL | bank3 pin26 = GPIO3_D2 | `<3 RK_PD2 5>` = GPIO3_D2 | 一致 |
+| SDA | bank3 pin27 = GPIO3_D3 | `<3 RK_PD3 5>` = GPIO3_D3 | 一致 |
+| DET | bank4 pin22 = GPIO4_C6 | `<4 RK_PC6 GPIO>` = GPIO4_C6 | 一致 |
+
+**结论：7.3 mainline 的 HDMI IN 引脚配置完全正确，与原厂逐根对齐。**
+先前的「引脚不一致」判断是把 `323` 误读成 gpio1 bank 编号导致的，
+已撤回。排查方向应从引脚转向 TF-A 与驱动绑定。
 
 ## 四、待办 2（P2）：内部隐藏 HDMI IN（LT6911UXC2）
 
@@ -274,6 +288,102 @@ mainline 写 `hpd-gpios = <&gpio4 RK_PC6>` → **GPIO4_C6**。
 避免一个永远 probe 失败的设备污染 dmesg 启动日志。
 
 ---
+
+## 四之二、构建树实测核查（`/home/user/github/build`）
+
+核查对象：
+
+```text
+patch/kernel/archive/rockchip64-7.3/dt/rk3588-really.dts          # mainline 7.3
+patch/kernel/rk35xx-vendor-6.1/dt/rk3588-really.dts              # vendor 6.1
+```
+
+7.3 源文件与 worktree 完全一致（md5 `851716026d5e...`）。
+6.1 源文件与 worktree 有差异，但仅 `&edp0` 一处注释措辞，无实质影响。
+
+### 4z.1 面板口（内置 HDMIRX）—— 配置正确
+
+**mainline 7.3**（`rk3588-really.dts:687`）：
+
+```dts
+&hdmi_receiver {
+	hpd-gpios = <&gpio4 RK_PC6 GPIO_ACTIVE_LOW>;
+	hpd-is-active-low;
+	pinctrl-names = "default";
+	pinctrl-0 = <&hdmim1_rx_cec &hdmim1_rx_hpdin
+		     &hdmim1_rx_scl &hdmim1_rx_sda &hdmirx_hpd>;
+	status = "okay";
+};
+&hdmi_receiver_cma { status = "okay"; };
+```
+
+逐项对照原厂，**全部正确**：
+
+| 项 | 原厂 | 7.3 mainline | 结果 |
+|---|---|---|---|
+| 控制器 | `rockchip,rk3588-hdmirx-ctrler` @fdee0000 | 同（内核 dtsi 提供） | ✅ |
+| HPD | `hdmirx-det-gpios=<&gpio4 RK_PC6 ACTIVE_LOW>` | `hpd-gpios=<&gpio4 RK_PC6 GPIO_ACTIVE_LOW>` | ✅ 同引脚 |
+| HPDIN | `<3 RK_PD4 5>` GPIO3_D4 | `hdmim1_rx_hpdin` = GPIO3_D4 | ✅ |
+| SCL | `<3 RK_PD2 5>` GPIO3_D2 | `hdmim1_rx_scl` = GPIO3_D2 | ✅ |
+| SDA | `<3 RK_PD3 5>` GPIO3_D3 | `hdmim1_rx_sda` = GPIO3_D3 | ✅ |
+| DET pinctrl | `<4 RK_PC6 func0 pull_up>` | 自定义 `hdmirx_hpd` 同配置 | ✅ |
+| CMA | 需要，原厂预留 | `hdmi_receiver_cma` okay | ✅ |
+| status | `okay` | `okay` | ✅ |
+
+**结论：7.3 面板口设备树配置无误，问题不在 DTS。**
+
+**vendor 6.1**（`rk3588-really.dts:603`）：
+
+```dts
+&hdmirx_ctrler {
+	hpd-trigger-level = <1>;
+	hdmirx-det-gpios = <&gpio4 RK_PC6 GPIO_ACTIVE_LOW>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&hdmim1_rx &hdmirx_det>;
+	status = "okay";
+};
+```
+
+`hdmim1_rx` 在 6.1 内核 `rk3588s-pinctrl.dtsi:599` 是组合组，含
+CEC(GPIO3_D1)/SCL(GPIO3_D2)/SDA(GPIO3_D3)/HPDIN(GPIO3_D4) 四根，
+DET 单独在 `hdmirx_det`。**与原厂完全对齐，配置正确。**
+
+### 4z.2 内部隐藏口（LT6911UXC2）—— 两边都有问题
+
+**共同问题：compatible 字符串没有任何驱动支持。**
+
+构建树里 vendor 6.1 自带三个 Lontium 驱动，of_match 分别是：
+
+```text
+drivers/media/i2c/lt6911c.c:1484     .compatible = "lontium,lt6911c"
+drivers/media/i2c/lt6911uxc.c:1639   .compatible = "lontium,lt6911uxc"
+drivers/media/i2c/lt6911uxe.c:2721   .compatible = "lontium,lt6911uxe"
+```
+
+但两份 DTS 都写的是 **`compatible = "lontium,lt6911uxc2"`**。
+在 6.1 整棵驱动树 grep `lt6911uxc2` —— **零命中**。
+即：即便 6.1 有 LT6911 驱动，这个节点也永远不会 probe。
+
+**7.3 更严重**：
+
+- 设备树写了 `&csi2 { status = "okay" }` + `lt6911@2b status = "okay"`，
+  但 **`csi2_dphy0` / `mipi2_csi2` / `rkcif_mipi_lvds2` 一个都没引用**，
+  整条 CSI 管道是断的（无 `status = "okay"`）。
+- 内核 `linux-rockchip64-edge.config` 里 `CONFIG_VIDEO_LT6911UXE` 未设置，
+  且该版本 `lt6911uxe.c` 只有 **ACPI 匹配**（`MODULE_DEVICE_TABLE(acpi, ...)`），
+  **没有 of_match 表**，DT 描述根本走不到。
+- 已装内核 `/lib/modules/7.3.4-edge-rockchip64/` 下无任何 lt6911 模块。
+
+**结论：内部隐藏口在两条线上都不可用，且不是改一个属性就能修好的。**
+
+### 4z.3 建议
+
+1. 面板口 P0 保持现状 DTS，排查直接跳到 TF-A / 驱动绑定，不要再动引脚。
+2. 内部口若短期不做，**两份 DTS 都建议置 `status = "disabled"`**，
+   避免一个永远 probe 失败的节点污染启动日志。
+3. 若要做，先解决 compatible：要么把 DTS 改成 `lontium,lt6911uxc`
+   （匹配 vendor 现有驱动，但那是 UXC 不是 UXC2，寄存器可能不同），
+   要么给 6.1 的 `lt6911uxc.c` 增加 `lt6911uxc2` 兼容项。**需先确认芯片丝印。**
 
 ## 五、与既往结论的差异记录（避免重复踩坑）
 
