@@ -8,11 +8,22 @@
   `7.3.4-edge-rockchip64`
 - Environment: Really TVI2340R, RK3588, eMMC boot, running at
   `192.168.3.233`
+- Original Android baseline: Android 11, Linux 5.10.110. Do not mix this
+  board with the RK3566 Blackcat 4.19.232 baseline.
 - Runtime kernel: `7.3.4-edge-rockchip64 #61`
 - Runtime DTB:
   `/boot/dtb-7.3.4-edge-rockchip64/rockchip/rk3588-really.dtb`
 - Runtime DTB SHA256:
   `98cb2541226cdc34ff269040f4b99cc30c21e159b15545d6709ef5688f4f9b84`
+
+## 2026-11-16 closure update
+
+- **CLOSED: GT9110 touch.** The missing shared 1.8 V enable path and the
+  GT9110 2.8 V analog rail were restored. GT9110 now works at I2C4 `0x14`.
+- **CLOSED: HYM8563 RTC.** HYM8563 now works at I2C4 `0x51`, confirming that
+  the common board power/enable path was the root cause.
+- **OPEN: USB-C DP.** Type-C partner/Alt Mode stability remains the only
+  active subsystem-level issue in this report.
 
 This report supersedes older statements that Type-C DP and mainline touch
 were "finished". Historical isolated successes are retained below as
@@ -79,7 +90,7 @@ Current conclusion:
 - Do not claim DP is fixed based only on matching SBU GPIO or
   `rockchip,dp-lane-mux = <2 3>`.
 
-## Mainline touch and RTC snapshot
+## Mainline touch and RTC pre-closure snapshot
 
 ```text
 Goodix input device                    absent
@@ -135,7 +146,7 @@ board state not recreated by mainline.
 
 ## Mainline experiments already rejected
 
-Touch/RTC:
+Touch/RTC pre-fix diagnostics (closed; retained as historical method):
 
 - I2C4 at 100 kHz and 400 kHz.
 - GT9110 reset/IRQ ACTIVE_LOW and ACTIVE_HIGH.
@@ -177,5 +188,176 @@ Touch/RTC:
    I2C transfers during first probe.
 3. Determine whether Android leaves a PMIC rail, GPIO expander state or
    Type-C mux state active that mainline never recreates.
-4. Avoid further random polarity/frequency loops without new trace or
+4. Avoided further random polarity/frequency loops without new trace or
    power-rail evidence.
+
+## 2026-11-16 follow-up
+
+Reference:
+[USB-C DisplayPort Alt Mode on Rockchip RK3588 and RK3576](https://www.collabora.com/news-and-blog/news-and-events/usb-c-displayport-alt-mode-on-rockchip-rk3588-and-rk3576-starting-with-the-flipper-one.html)
+
+### Confirmed board facts
+
+- The internal panel is dual-link LVDS behind LT9211. Port 2 carries odd
+  pixels and port 3 carries even pixels.
+- The established USB-C DP SBU mapping is:
+  - SBU1: GPIO3_A0
+  - SBU2: GPIO1_B2
+- GPIO4_A6 is the USB camera/USB 5 V enable and must not be used as SBU.
+- The earlier SBU/GPIO4_A6 conflict is already fixed in the current DTS.
+- DP0 remains routed from VOP2 VP1 through USBDP PHY0.
+
+### USB-C DP TODO
+
+- [ ] Verify that the running DTB includes the corrected SBU mapping above.
+- [ ] Capture the Type-C state every 100 ms from initial attach through the
+      HUSB311 disconnect. Record `data_role`, `power_role`, partner VDOs,
+      `configuration`, `pin_assignment`, `hpd`, and `irq_hpd`.
+- [ ] Save the relevant TCPM debugfs log exactly once; reading it clears it.
+- [ ] Classify the failure boundary:
+  - partner disappears before DP Alt Mode/hotplug bridge: investigate
+    CC/VBUS/PD power and data-role negotiation;
+  - partner remains but `hpd=0`: investigate DP Alt Mode/HPD bridge;
+  - `hpd=1` but DP AUX fails: investigate SBU direction, PHY mux and AUX;
+  - link training succeeds but modes fail: investigate pixel clock/timing.
+- [ ] Audit whether `try-power-role = "sink"` matches the board power design;
+      the article's source-device example uses `try-power-role = "source"`.
+- [ ] Audit the custom `linux,typec-extcon-bridge` against the standard
+      TCPM/typec orientation-switch/mode-switch path. Remove it only as a
+      controlled regression test, not as an unverified permanent change.
+- [ ] Confirm that the kernel contains the Collabora USBDP PHY/DP bridge/HPD
+      series. The article states that important PHY and DRM changes were still
+      under review, so a vanilla Linux 7.3 tree may be incomplete.
+- [ ] Do not alter the dual-link LVDS topology while debugging USB-C DP.
+
+### Touch and RTC closure
+
+Really uses the following Android 5.10 baseline on I2C4:
+
+```text
+controller       feac0000.i2c
+pinmux           i2c4m1
+address          0x14
+compatible       goodix,gt9xx
+reset            GPIO1_D3, active low, pull-none
+interrupt        GPIO4_B0, active low, pull-none
+supplies         not described in the factory touch node
+```
+
+The current 7.3 node instead uses:
+
+```text
+400 kHz, goodix,gt9110
+reset GPIO1_D3 active-high, pull-none
+irq   GPIO4_B0 active-high, pull-none
+AVDD28 = vcc_3v3_s3
+VDDIO  = vcc_1v8_s3
+```
+
+- [x] Keep the mainline ACTIVE_HIGH reset/IRQ semantics required by
+      `goodix_reset_no_int_sync()` and the GT911 address-selection sequence.
+      The polarity difference from the vendor `goodix,gt9xx` driver is not by
+      itself a bug.
+- [x] Tested and rejected as the primary fix the initialization-state
+      combination used by the
+      Chmayco-mainline fix: reset pinctrl pull-down and IRQ pinctrl pull-up,
+      while retaining Really's own I2C4 and GPIO1_D3/GPIO4_B0 wiring.
+      Do not copy Chmayco's I2C5 or GPIO3 pins.
+- [x] Tested 100 kHz together with alternate pinctrl state. Earlier isolated tests
+      changed frequency or pulls separately and did not cover the full
+      combination.
+- [x] Checked the fallback-compatible option. The verified fix uses
+      `goodix,gt9110`; no `goodix,gt9xx` fallback was required.
+- [x] Verified that both `vcc_3v3_s3` and `vcc_1v8_s3` remain enabled at the
+      moment the Goodix driver enables them; they are shared rails and should
+      be treated as consumers, not board-specific touch regulators.
+- [x] Determined why HYM8563 at I2C4 `0x51` also lacked an ACK. LT9211 at
+      `0x2d` responds on the same bus, so the controller and SCL/SDA pinmux
+      are alive. Focus on a shared external power/enable/reset state rather
+      than remapping I2C4.
+- [x] Compared cold boot and shared-rail recovery. The verified power fix
+      restored both devices without changing I2C4 or Goodix polarity.
+- [x] Post-fix regression: GT9110 input and HYM8563 RTC are both working after
+      restoring the shared board power/enable path.
+
+### Linux 7.3 Goodix DTS references
+
+The Linux 7.3 Rockchip DTS tree has no nodes using the exact compatible
+strings `goodix,gt9110` or `goodix,gt9xx`. Existing boards use
+`goodix,gt911`, which is handled by the same mainline Goodix driver family.
+
+Relevant examples:
+
+| Board | Bus | IRQ | Reset | Supplies | Pinctrl |
+| --- | --- | --- | --- | --- | --- |
+| RK3588 Tiger Haikou video demo | I2C6, 400 kHz | GPIO3_C3, active-high, level-low | PCA9670 GPIO, active-high | AVDD28/VDDIO | IRQ pull-none |
+| RK3588S GameForce Ace | I2C3 | GPIO1_A6, active-high, level-low | GPIO1_A7, active-high | not declared | IRQ/reset pull-up |
+| RK3566 PineTab2 | I2C1, 400 kHz | GPIO0_B0, active-high, edge-falling | GPIO0_C2, active-high | AVDD28/VDDIO | IRQ pull-up, reset pull-none |
+| RK3568 Anbernic RG DS | I2C3/I2C5, 400 kHz | active-high, level-low | active-high | AVDD28/VDDIO | IRQ/reset pull-up |
+| PX30 Cobra | I2C2, 100 kHz | GPIO0_A1, active-high, level-low | GPIO0_B5, active-high | AVDD28/VDDIO | IRQ/reset pull-none |
+
+Implications for Really:
+
+- `irq-gpios` and `reset-gpios` ACTIVE_HIGH are the normal mainline GT911
+  convention; do not change them merely to match the old vendor properties.
+- `AVDD28-supply` and `VDDIO-supply` are normal and should remain if they map
+  to the correct board rails.
+- Pinctrl bias is board-specific. Pull-none is also used by RK3588 Tiger and
+  PX30 Cobra, so the Chmayco pull-down/pull-up values are not a universal fix.
+- 400 kHz is valid for RK3588 and RK356x GT911 designs.
+- During reset the driver drives IRQ high to select address `0x14`. If that
+  strap is not established, GT911 can enumerate at `0x5D`; scan both addresses
+  and inspect whether `irq-gpios` was successfully acquired and driven.
+- The absence of both GT911 (`0x14`) and HYM8563 (`0x51`) while LT9211
+  (`0x2d`) works still points more strongly to a shared power/enable/boot state
+  than to a generic Goodix binding deficiency.
+
+### Factory 5.10 power-tree audit
+
+The factory Android DTB and boot log establish:
+
+- The Android Goodix driver reports `supply tp not found, using dummy
+  regulator`. The factory touch node therefore does not manage a named touch
+  regulator; the board rails must already be powered.
+- HYM8563 at I2C4 `0x51` also has no supply property, but probes successfully
+  in Android.
+- The factory board defines a switched `vcc1v8_sys` rail:
+
+```text
+GPIO0_C0, active-high, pinctrl vcc1v8_sys_en, function GPIO,
+pull-up, regulator-always-on, regulator-boot-on
+```
+
+- The factory board also defines always-on `vcc28_dvp` at 2.8 V and
+  `vcc12_dvp` at 1.2 V. The i.MX577 camera explicitly consumes
+  `vcc28_dvp`; the touch node has no explicit phandle.
+- LT9211 is supplied from the separate `vcc_1v8_s3` rail, explaining why it
+  can still ACK on I2C4 while GT911/HYM8563 do not.
+
+The current 7.3 DTS differs in two important ways:
+
+1. `vcc1v8_sys` is represented only as a raw `gpio0` hog. The hog has no
+   `pinctrl-0 = <&vcc1v8_sys_en>` and therefore does not reproduce the
+   factory pinmux/enable dependency.
+2. No `vcc28_dvp` regulator exists in the current tree. GT911 `AVDD28`
+   is incorrectly pointed at the generic 3.3 V `vcc_3v3_s3` rail.
+
+High-confidence correction to test:
+
+- Restore `vcc1v8_sys` as a `regulator-fixed` on GPIO0_C0 with the factory
+  GPIO function and pull-up pinctrl.
+- Remove the competing `vcc1v8_sys_hog`.
+- Point GT911 `VDDIO-supply` at `vcc1v8_sys`, not directly at
+  `vcc_1v8_s3`.
+- Restore an always-on 2.8 V `vcc28_dvp` fixed regulator and point GT911
+  `AVDD28-supply` at it.
+
+The factory DTB does not prove whether HYM8563 is physically connected to
+`vcc1v8_sys` or another always-on rail, so measure GPIO0_C0 and the
+GT911/HYM8563 supply pins at cold boot before declaring the shared-rail
+question closed.
+
+Other factory rails absent from the current tree include `vcc12_dvp`,
+`vcc3v3_ext`, `vcc1v8_pmu_ddr_s3`, `vcc4v0_sys`, and several PCIe analog
+rails. Their absence should not be conflated with the touch failure unless a
+consumer or measurement ties them to GT911/HYM8563.

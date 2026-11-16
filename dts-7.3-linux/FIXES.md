@@ -138,25 +138,30 @@ hot-plug regression passes.
   model, power sequence and timing.
 - No eDP panel has yet been fitted for physical validation.
 
-### Touch and RTC
+### Touch and RTC (closed 2026-11-16)
 
-- GT9110: I2C4 `0x14`, reset GPIO1_D3, IRQ GPIO4_B0. The factory DTB uses
-  active-low polarity; the current experimental DTS was changed to
-  active-high while comparing probe behavior. Both polarities have been
-  tested and neither resolves the current I2C failure.
+- GT9110: I2C4 `0x14`, reset GPIO1_D3, IRQ GPIO4_B0. The mainline driver
+  uses ACTIVE_HIGH reset/IRQ semantics and a successful reset drives the IRQ
+  strap for the `0x14` address.
 - HYM8563: I2C4 `0x51`, IRQ GPIO0_B0.
-- Userspace late-bind services are installed for both devices because they
-  can miss the first built-in probe during cold boot.
 
-Current live result (2026-11-15T21:30+08:00): there is no Goodix input device,
-I2C4 `0x14` and `0x51` do not acknowledge, and neither device has a bound
-driver. The bus controller itself is alive because LT9211 at `0x2d` remains
-bound. Android 12 has a working `goodix-ts` device with raw range
-`0..1080 x 0..1920`, proving the panel hardware and wiring are valid.
+Pre-fix result: there was no Goodix input device, and I2C4 `0x14` and `0x51`
+did not acknowledge. LT9211 at `0x2d` remained bound, proving the I2C
+controller and pinmux were alive.
 
-Already tested without success: I2C4 at 100 kHz and 400 kHz; reset/IRQ
-ACTIVE_LOW and ACTIVE_HIGH; pull-up and pull-none; late-bind; and the
-factory `mipi_cam_pwen` supply enable. The root cause is still open.
+Root cause and verified fix:
+
+- The factory `vcc1v8_sys` rail is controlled by GPIO0_C0 and needs its
+  dedicated GPIO-function/pull-up pinctrl. A raw gpio-hog did not preserve
+  the boot-time power dependency.
+- The factory also has an always-on 2.8 V `vcc28_dvp` rail; GT9110 AVDD28
+  was incorrectly mapped to 3.3 V.
+- Restoring `vcc1v8_sys` as a regulator, adding its pinctrl, removing the
+  hog, restoring `vcc28_dvp`, and mapping GT9110
+  `AVDD28=<&vcc28_dvp>` / `VDDIO=<&vcc1v8_sys>` fixed both GT9110 and
+  HYM8563 on hardware.
+- GT9110 works at I2C4 `0x14`; HYM8563 works at `0x51`; LT9211 remains
+  functional. No I2C bus remap or Goodix polarity change was required.
 
 ### Ethernet, fans, keys and power
 
@@ -204,17 +209,13 @@ click. The click is more likely ES8388/amplifier power-on or mute timing.
    establish single-vs-dual mode.
 3. Panel-side 12 V, backlight power and LVDS common-mode/swing have not been
    measured with a meter or oscilloscope.
-4. GT9110 and HYM8563 remain unresolved on mainline. The current system does
-   not create a Goodix input device, I2C4 `0x14` and `0x51` do not ACK, and
-   late-bind still fails. Android 12 provides a working touch baseline, so
-   continue with the mainline I2C4 power/enable/controller comparison.
-5. HDMI output can remain logically connected after cable removal, causing
+4. HDMI output can remain logically connected after cable removal, causing
    EDID I2C retries and a compositor stall. The image currently starts HDMI
    disabled by default.
-6. Type-C DP is open, not merely limited to 4K30. Current `DP-1` is
+5. Type-C DP is open, not merely limited to 4K30. Current `DP-1` is
    disconnected and the HUSB311 Type-C partner repeatedly detaches. Previous
    two-lane 4K30 success must not be used as a final validation claim.
-7. TF boot is still unresolved at U-Boot runtime despite correct aliases and
+6. TF boot is still unresolved at U-Boot runtime despite correct aliases and
    SD regulators. See `../u-boot-mainline/TF-BOOT-STATUS.md`; do not trust the
    old claim that TF boot already works.
 

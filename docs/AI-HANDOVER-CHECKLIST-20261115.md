@@ -2,9 +2,10 @@
 
 - 作者：OpenAI Codex（GPT-5），执行端：user
 - 生成时间：2026-11-15T18:10:00+08:00
-- 最后更新：2026-11-15T21:45:00+08:00
+- 最后更新：2026-11-16
 - 背景：Really TVI2340R 已完成 mainline 7.3 的主要板级 bring-up，但
-  TF 启动、USB-C DP、GT9110 触控和 HYM8563 RTC 仍未闭环。
+  TF 启动和 USB-C DP 仍未闭环。GT9110 触控与 HYM8563 RTC 已于
+  2026-11-16 通过恢复板级电源链完成实机闭环。
 - 适用构建分支：`/home/user/github/build`，`main`，Armbian edge/resolute
 - 适用内核：`7.3.4-edge-rockchip64`
 - 运行设备：Really TVI2340R，RK3588，`192.168.3.233`
@@ -25,8 +26,9 @@
 2. **USB-C DP 当前没有闭环。** `DP-1 disconnected`，Type-C partner
    不稳定并在 PD/VDM 完成后反复 detach。历史上曾抓到 4K30，不能据此
    宣告当前镜像已修复。
-3. **GT9110 和 HYM8563 当前都没有可靠工作。** GT9110 不在输入设备列表中；
-   I2C4 上 `4-0014` 读取 `0x8140` 持续返回 `-ENXIO`。
+3. **GT9110 和 HYM8563 已闭环。** 根因是 `vcc1v8_sys` 的 GPIO0_C0
+   pinctrl/regulator 依赖和 GT9110 的 `vcc28_dvp` 2.8 V 供电未恢复。
+   修复后 GT9110 I2C4 `0x14`、HYM8563 `0x51` 均正常。
 4. **USB 相机默认由虚拟 PipeWire 节点提供。** 原 UVC 节点被 WirePlumber
    隐藏，直接用 `snapshot` 启动会显示 “No camera Found”。必须通过桌面
    图标或 `/usr/local/bin/really-camera-open` 启动。
@@ -220,8 +222,8 @@ u-boot-mainline/board_really/0004-really-sdmmc-power-domain-in-spl.patch
 
 - [ ] **TF 启动：U-Boot 初始化 TF 返回 `-EIO`。**
 - [ ] **USB-C DP：partner/Alt Mode 不稳定，当前 `DP-1 disconnected`。**
-- [ ] **GT9110 触控：无输入设备，I2C `-ENXIO`。**
-- [ ] **HYM8563 RTC：冷启动 I2C 不稳定，和触控共享 I2C4。**
+- [x] **GT9110 触控：已完成电源修复并通过实机验证。**
+- [x] **HYM8563 RTC：随共享电源链修复并通过实机验证。**
 - [ ] HDMI IN mainline 采集链路。
 - [ ] 相机随重力自动旋转服务。
 
@@ -363,9 +365,25 @@ findmnt -n -o SOURCE,FSTYPE /
 
 ---
 
-## 6. P0：GT9110 触控与 HYM8563 RTC
+## 6. P0：GT9110 触控与 HYM8563 RTC（2026-11-16 已闭环）
 
-### 6.1 当前现场
+### 6.1 最终结果
+
+GT9110 和 HYM8563 均已恢复：
+
+- GT9110 在 I2C4 `0x14` 正常通信并注册输入设备。
+- HYM8563 在 I2C4 `0x51` 正常通信并注册 RTC。
+- LT9211 在 I2C4 `0x2d` 保持正常。
+
+根因与修复：
+
+- 原厂 `vcc1v8_sys` 由 GPIO0_C0 控制，需要 regulator-fixed 和明确的
+  GPIO-function/pull-up pinctrl。原来的 gpio-hog 没有提供同等依赖。
+- 原厂 `vcc28_dvp` 是 always-on 2.8 V，GT9110 AVDD28 不应接 3.3 V。
+- 最终映射为 `AVDD28=<&vcc28_dvp>`、`VDDIO=<&vcc1v8_sys>`。
+- 修复后触控与 RTC 同时恢复，证明共同根因是 shared power/enable path。
+
+### 6.2 修复前现场（历史证据）
 
 系统输入设备里没有 Goodix 触控，仅有电源键、音频耳机检测、ADC keys、
 mini keyboard：
@@ -447,7 +465,7 @@ IRQ GPIO         GPIO4_B0
 HYM8563 address  0x51
 ```
 
-### 6.2 已做过但无效
+### 6.3 已做过但无效（历史记录）
 
 - reset/irq 极性对齐原厂。
 - pinctrl 改为 pull-none。
@@ -457,20 +475,18 @@ HYM8563 address  0x51
 - 手工复位时序。
 - I2C 降速已试，且会影响 LT9211，不能继续降速。
 
-### 6.3 接手建议
+### 6.4 已执行并验证的修复步骤
 
-Android 基线已经完成，不需要再次盲刷。当前优先级改为：
+关闭本问题所执行的步骤：
 
-1. 使用现有 `reports/android-touch-baseline-20261115-1820/` 对照。
-2. 对照 Android 启动后保留的供电、GPIO、PMIC 和 I2C4 控制器状态。
-3. 检查 GT9110 与 HYM8563 是否共享某个 mainline 尚未打开的供电/使能。
-4. 集中比较：
-   - GT9110 reset/IRQ 的实际申请与物理时序。
-   - HYM8563 同步失败的共同根因。
-   - I2C4 控制器、供电域、pinmux、时钟和 vendor BL31 初始化。
-5. 在没有串口证据前，不再重复轮换 GPIO 极性、pull mode 和 late-bind。
+1. 恢复 `vcc1v8_sys` regulator 到 GPIO0_C0。
+2. 增加 `vcc1v8_sys_en` pinctrl：GPIO function + pull-up。
+3. 删除原有 `vcc1v8_sys_hog`。
+4. 恢复 always-on 2.8 V `vcc28_dvp`。
+5. GT9110 VDDIO 改接 `vcc1v8_sys`，AVDD28 改接 `vcc28_dvp`。
+6. 冷启动回归确认 GT9110、HYM8563、LT9211 三者均正常。
 
-### 6.4 安全禁忌
+### 6.5 后续回归与安全禁忌
 
 - 不要把 I2C4 降到 100 kHz 作为长期方案。
 - 不要轻易 unbind LT9211，曾导致显示/SSH异常。
@@ -785,8 +801,9 @@ userpatches/overlay/usr/local/bin/power-mode.sh
 4. 对比 vendor U-Boot/BL31 的 SDMMC power-domain 初始化。
 5. 若 TF 仍不响应，暂缓“刷 TF 启动”工作，避免继续消耗轮次。
 6. **Type-C DP 先稳定 partner/PD/VDM/extcon 状态，再验证 DP connector。**
-7. 基于现有 Android 触控基线，对比 mainline 的 I2C4、供电和 GPIO 状态。
-8. 修复 GT9110/HYM8563，再做自动旋转、HDMI 热插拔、硬解/NPU 长测。
+7. GT9110/HYM8563 已通过共享电源修复闭环；后续只需做重启回归，
+   不再重复更改 I2C4、GPIO 极性或 Goodix compatible。
+8. 继续处理自动旋转、HDMI 热插拔、硬解/NPU 长测。
 
 ---
 

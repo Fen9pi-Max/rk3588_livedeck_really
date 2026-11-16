@@ -57,20 +57,21 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 
 ## Current Mainline 7.3 Runtime Status
 
-As of `2026-11-15T21:30:00+08:00`, the live system runs
-`7.3.4-edge-rockchip64 #61` with DTB SHA256
+The pre-fix baseline ran `7.3.4-edge-rockchip64 #61` with DTB SHA256
 `98cb2541226cdc34ff269040f4b99cc30c21e159b15545d6709ef5688f4f9b84`.
+The touch/RTC power fix was hardware-validated on 2026-11-16; the SHA256 of
+the updated DTB is not yet recorded here.
 
 - LVDS remains connected and functional.
 - USB-C DP is not closed. The current `DP-1` state is disconnected, no
   Type-C partner is present, and previous testing showed repeated
   HUSB311/RT1711H attach/detach cycles. A historical 4K30 success exists
   but is not reproducible on the final baseline.
-- Goodix GT9110 is not present as an input device and I2C4 address `0x14`
-  does not acknowledge.
-- HYM8563 does not acknowledge at I2C4 address `0x51`.
-- The I2C4 controller itself is alive: LT9211 at `0x2d` is bound by its
-  driver. Android 12 proves that the GT9110 hardware and panel wiring work.
+- Goodix GT9110 is fixed and hardware-validated at I2C4 `0x14` after
+  restoring the `vcc1v8_sys` and `vcc28_dvp` power paths.
+- HYM8563 is fixed and hardware-validated at I2C4 `0x51` on the same shared
+  power path.
+- I2C4 now works for LT9211 `0x2d`, GT9110 `0x14`, and HYM8563 `0x51`.
 
 See
 [`reports/mainline-open-issues-20261115-2130/README.md`](reports/mainline-open-issues-20261115-2130/README.md)
@@ -171,10 +172,10 @@ SATA0 / PCIe3 -> disabled
 | Headphone amplifier enable | GPIO4_B4 | High | ES8388 headphone path |
 | Power LED | GPIO3_C0 | High | GPIO LED |
 
-The GPIO table records factory polarity intent. The current mainline
-experimental DTS has also tested ACTIVE_HIGH for GT9110 reset/IRQ.
-LOW/HIGH and pull-up/pull-none were all tested without fixing the I2C
-ENXIO failure, so polarity is not a final conclusion.
+The GPIO table records factory vendor-driver polarity. Mainline Goodix uses
+ACTIVE_HIGH reset/IRQ and drives the IRQ strap to select address `0x14`
+during reset. Hardware validation showed that the actual fix was the shared
+power/enable path, not a reset/IRQ polarity change.
 
 ## PWM and Thermal Control
 
@@ -250,7 +251,4 @@ its existing disabled-eDP baseline until that model is validated.
 5. Type-C DP is not closed. A previous two-lane configuration produced
    4K30, but the final baseline repeatedly loses the Type-C partner and
    leaves `DP-1` disconnected.
-6. HYM8563 and GT9110 are not working on mainline. Neither address
-   acknowledges on I2C4. Frequency, GPIO polarity, pull mode and
-   late-bind variations have not fixed the failure.
-7. The device tree describes kernel hardware only. Booting also requires a matching loader, U-Boot, memory initialization and root filesystem.
+6. The device tree describes kernel hardware only. Booting also requires a matching loader, U-Boot, memory initialization and root filesystem.

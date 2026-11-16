@@ -57,21 +57,23 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 
 ## Mainline 7.3 当前实测状态
 
-截至 `2026-11-15T21:30:00+08:00`，运行现场为
-`7.3.4-edge-rockchip64 #61`，运行 DTB SHA256
+修复前基线为 `2026-11-15` 的 `7.3.4-edge-rockchip64 #61`，DTB SHA256
 `98cb2541226cdc34ff269040f4b99cc30c21e159b15545d6709ef5688f4f9b84`。
+触控/RTC 电源修复已于 `2026-11-16` 实机验证；修复后 DTB 的 SHA256
+尚未记录在本文件。
 
 | 功能 | 当前状态 |
 | --- | --- |
 | LVDS 内屏 | `LVDS-1 connected`，双链路画面正常 |
 | HDMI OUT | 当前未接显示器，`HDMI-A-1 disconnected` |
 | USB-C DP | **未闭环**。当前 `DP-1 disconnected`，Type-C partner 不存在；历史版本抓到过 4K30，当前基线不能复现稳定连接 |
-| GT9110 触控 | **未工作**。无 Goodix 输入设备，I2C4 `0x14` 不应答 |
-| HYM8563 RTC | **未工作**。I2C4 `0x51` 不应答 |
-| I2C4 控制器 | LT9211 `0x2d` 由驱动占用，说明总线本身并非完全失效；`0x14/0x51` 是当前共同异常点 |
+| GT9110 触控 | **已修复并实测通过**。恢复 `vcc1v8_sys`/`vcc28_dvp` 电源链后，I2C4 `0x14` 正常 |
+| HYM8563 RTC | **已修复并实测通过**。I2C4 `0x51` 随共享电源链恢复 |
+| I2C4 控制器 | LT9211 `0x2d`、GT9110 `0x14` 和 HYM8563 `0x51` 均正常 |
 
-Android 12 下触控正常，坐标范围是 `1080x1920`，因此触控模组、排线和
-Android 软件链路本身正常；问题限定在 mainline 的 I2C4/设备初始化路径。
+触控/RTC 的根因是 7.3 未完整复现原厂 `vcc1v8_sys` 的 GPIO0_C0
+使能/pinctrl 依赖，以及 GT9110 AVDD28 的 2.8 V `vcc28_dvp` 供电。
+修复后触控和 RTC 均完成闭环；USB-C DP 仍是当前唯一未闭环项。
 
 ## 硬件拓扑
 
@@ -178,9 +180,9 @@ SATA0 / PCIe3 --> disabled
 | 耳机检测 | GPIO4_B3 | High | ES8388 headphone detect |
 | 电源灯 | GPIO3_C0 | High | GPIO LED |
 
-触控 GPIO 极性表保留工厂语义。当前 mainline 实验 DTS 为了 probe 对比
-曾使用 ACTIVE_HIGH；LOW/HIGH、pull-up/pull-none 都已实测，均未修复
-I2C ENXIO，因此不能把极性当成最终结论。
+触控 GPIO 表中的 Low 是原厂 vendor 驱动语义；mainline Goodix 驱动使用
+ACTIVE_HIGH reset/IRQ，并在复位阶段驱动 IRQ 选择 `0x14` 地址。最终
+实机修复来自共享电源链，而不是改变 reset/IRQ 极性。
 
 按键使用 SARADC1：
 
@@ -273,7 +275,4 @@ VP2、PWM6 背光和面板 enable 描述，但不设置 `force-hpd`/`no-hpd`：
 5. Type-C DP 未闭环。历史双 lane 配置曾验证 4K30，但当前最终基线在
    Type-C partner/Alt Mode 阶段反复 attach/detach，`DP-1` 常保持
    `disconnected`。不能仅凭 DTS 中仍存在 `<2 3>` lane mux 就宣称可用。
-6. GT9110 和 HYM8563 均未工作。当前运行态没有 Goodix 输入设备，
-   I2C4 `0x14`、`0x51` 都不应答；100/400 kHz、两种 GPIO 极性、
-   pull-up/pull-none 和 late-bind 均未解决。
-7. 设备树只描述内核侧硬件，正式启动仍依赖匹配的 loader、U-Boot、内存初始化和根文件系统。
+6. 设备树只描述内核侧硬件，正式启动仍依赖匹配的 loader、U-Boot、内存初始化和根文件系统。
