@@ -34,16 +34,29 @@ marked disabled by default.
 
 - ES8388 uses I2S1 M0 to avoid the UART2 M0 pin conflict.
 - MCLK is GPIO4_A0 at 12.288 MHz.
-- The card exposes speaker, headphone and microphone DAPM paths.
+- The ES8388 card exposes speaker, headphone and analog-input DAPM paths.
 - Speaker amplifier enable is GPIO4_B2, active low.
 - Headphone amplifier enable is GPIO4_B4, active high.
 - Headphone detect is GPIO4_B3, active high.
+- Factory Audio-jack microphone routing selects ES8388 Line 1.
+- Factory independent LINE IN routing selects ES8388 Line 2 through the
+  private `linein_det_handler` on GPIO1_B6.
+- The built-in microphone is the factory `rockchip,pdm-mic-array` on PDM0,
+  not the ES8388 analog capture path. PDM0 uses M0 CLK/SDI0/SDI2 and
+  `rockchip,path-map = <0 2 1 3>`.
 - The factory play/pause key is on SARADC channel 3, threshold 200 mV,
   key-up threshold 1.8 V and key code `KEY_PLAYPAUSE`.
 
-Validated result: ES8388 playback and capture enumerate, the speaker path
-produces audio, and the amplifier is switched off after playback stops.
-The play/pause ADC input registers as a second `adc-keys` input device.
+Playback baseline: ES8388 playback enumerates and the speaker path produces
+audio; the amplifier is switched off after playback stops. The play/pause
+ADC input registers as a second `adc-keys` input device.
+
+Capture is **not closed**. Every tested ES8388 analog route currently returns
+hard digital zero on both channels, including after increasing Mic PGA and
+confirming the I2C register write. The factory evidence instead identifies
+PDM0 as the built-in microphone path. Built-in-mic capture, the headset mic,
+the independent LINE IN switch and speaker/headphone quality remain open.
+See `../reports/audio-mic-linein-20261117/README.md`.
 
 ### USB and Type-C
 

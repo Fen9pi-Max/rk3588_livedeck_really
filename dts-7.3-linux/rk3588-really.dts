@@ -489,6 +489,26 @@
 		};
 	};
 
+	pdm_codec: pdm-codec {
+		compatible = "dmic-codec";
+		#sound-dai-cells = <0>;
+		num-channels = <2>;
+	};
+
+	pdm_mics: pdm-mics {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "Really-PDM-Mics";
+		status = "okay";
+
+		simple-audio-card,cpu {
+			sound-dai = <&pdm0>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&pdm_codec>;
+		};
+	};
+
 /*
  * Really carries an SGM760B-style external watchdog on GPIO0_D3.  The
  * factory DTB keeps both this device and the RK3588 DW watchdog disabled.
@@ -995,6 +1015,28 @@
 
 &mipidcphy1 {
 	status = "okay";
+};
+
+&{/} {
+	/*
+	 * Mainline 7.3 does not yet describe the RK3588 PDM0 controller.
+	 * The vendor block is register-compatible with the existing RV1126
+	 * path for the supported capture rates.
+	 */
+	pdm0: pdm@fe4b0000 {
+		compatible = "rockchip,rk3588-pdm", "rockchip,rv1126-pdm";
+		reg = <0x0 0xfe4b0000 0x0 0x1000>;
+		#sound-dai-cells = <0>;
+		clocks = <&cru MCLK_PDM0>, <&cru HCLK_PDM0>;
+		clock-names = "pdm_clk", "pdm_hclk";
+		dmas = <&dmac0 4>;
+		dma-names = "rx";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pdm0m0_clk &pdm0m0_sdi0 &pdm0m0_sdi2>;
+		/* Capture PATH0/PATH1 from the two wired data lanes SDI0/SDI2. */
+		rockchip,path-map = <0 2 1 3>;
+		status = "okay";
+	};
 };
 
 &package_thermal {

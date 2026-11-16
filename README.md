@@ -7,6 +7,10 @@
 Linux 7.3 的当前板级改动和实测边界见
 [`dts-7.3-linux/FIXES.md`](dts-7.3-linux/FIXES.md)。
 
+音频专项的原厂证据、当前失败边界、安全测试要求、待办和后续 AI 强制
+进度回填规则见
+[`reports/audio-mic-linein-20261117/README.md`](reports/audio-mic-linein-20261117/README.md)。
+
 当前完整状态、触控 Android 基线和群友 AI 接手顺序见
 [`docs/AI-HANDOVER-CHECKLIST-20261115.md`](docs/AI-HANDOVER-CHECKLIST-20261115.md)。
 
@@ -56,7 +60,7 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | 有线网络 | GMAC0，RGMII，PHY 地址 1 |
 | PCIe | PCIe 2.0 x1 lane 1 与 lane 2，两路均启用 |
 | USB | USB3 OTG0、USB3 Host1、两路 USB2 Host、HUSB311 Type-C PD |
-| 音频 | ES8388 + I2S1，HDMI1 音频，DP0 音频 |
+| 音频 | ES8388 + I2S1（扬声器/耳机/Audio 耳麦/LINE IN）；内置麦克风走 PDM0；另有 HDMI1/DP0 音频 |
 | RTC | HYM8563，I2C4 `0x51`，GPIO0_B0 中断 |
 | 触摸 | Goodix GT9110，I2C4 `0x14` |
 | HDMI 输入 | RK3588 内置 HDMI RX，HPD/检测 GPIO4_C6；LT6911UXC2，I2C6 `0x2b` |
@@ -84,6 +88,7 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | AP6275P Wi-Fi | ✅ **已工作**。固件 BCM43752/2 `18.35.387.23.146` 启动，`wlP4p65s0` 已连接 `HUAWEI-7409_5G` |
 | AP6275P Bluetooth | ✅ **已工作**。`hci0` 识别为 `BCM43752A2`，控制器已上电 |
 | TF 卡启动 | ✅ **已闭环**。已冷启动并从 `/dev/mmcblk1p1` 挂载根文件系统 |
+| 音频 | ⚠️ **部分闭环**。ES8388 播放基线可用；PDM 内置麦克风、Audio 耳麦、LINE IN、耳机自动切换和扬声器音质仍待完善 |
 
 ### I2C4 设备修复说明
 
