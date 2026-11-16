@@ -7,7 +7,7 @@
 Linux 7.3 的当前板级改动和实测边界见
 [`dts-7.3-linux/FIXES.md`](dts-7.3-linux/FIXES.md)。
 
-当前完整状态、TF 启动遗留项、触控 Android 基线和群友 AI 接手顺序见
+当前完整状态、触控 Android 基线和群友 AI 接手顺序见
 [`docs/AI-HANDOVER-CHECKLIST-20261115.md`](docs/AI-HANDOVER-CHECKLIST-20261115.md)。
 
 vendor 6.1 的现有修复、7.3 回移项与明确不适用项见
@@ -20,8 +20,11 @@ HDMI IN 两路（面板内置 HDMIRX / 内部 LT6911UXC2）的待办、已排除
 验收标准见
 [`reports/hdmi-in-dual-path-20261116/README.md`](reports/hdmi-in-dual-path-20261116/README.md)。
 
-TF 卡已按 community 启动链重写并回读校验（启动未验证）：
+TF 卡已按 community 启动链重写并完成冷启动验证：
 [`reports/tf-write-community-chain-20261116/README.md`](reports/tf-write-community-chain-20261116/README.md)。
+
+2026-11-16 的 late-bind、U-Boot 电源、USB 休眠与 PHY LED 审计见
+[`reports/workaround-audit-20261116/README.md`](reports/workaround-audit-20261116/README.md)。
 
 ## 版本目录
 
@@ -64,9 +67,10 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 
 ## Mainline 7.3 当前实测状态
 
-截至 `2026-11-16T23:35:00+08:00`，运行现场为
+截至 `2026-11-16T23:52:00+08:00`，运行现场为
 `7.3.4-edge-rockchip64`，U-Boot
-`2026.07-Sece3-P56fc-Hae08-V6f98-Bd800-R448a`。
+`2026.07-Sece3-P743c-Hae08-V6f98-Bd800-R448a`，根文件系统为
+`/dev/mmcblk1p1`（TF 卡，UUID `7faf7863-d5d5-419e-81bd-902914de6883`）。
 
 
 | 功能 | 当前状态 |
@@ -79,7 +83,7 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | I2C4 控制器 | `0x14` / `0x2d` / `0x51` 三点均为 `UU`，全部正常绑定 |
 | AP6275P Wi-Fi | ✅ **已工作**。固件 BCM43752/2 `18.35.387.23.146` 启动，`wlP4p65s0` 已连接 `HUAWEI-7409_5G` |
 | AP6275P Bluetooth | ✅ **已工作**。`hci0` 识别为 `BCM43752A2`，控制器已上电 |
-| TF 卡启动 | **未闭环**。见 [`u-boot-mainline/TF-BOOT-STATUS.md`](u-boot-mainline/TF-BOOT-STATUS.md) |
+| TF 卡启动 | ✅ **已闭环**。已冷启动并从 `/dev/mmcblk1p1` 挂载根文件系统 |
 
 ### I2C4 设备修复说明
 
@@ -91,10 +95,25 @@ mainline DTS 缺少原厂的模块供电拓扑：
 - 触控的 `AVDD28-supply` / `VDDIO-supply` 指向了错误的供电轨。
 
 补全后 `vcc1v8_sys 1800mV → 4-0014-VDDIO`、`vcc28_dvp 2800mV →
-4-0014-AVDD28`，两器件在 10 s 前后由 late-bind 服务完成绑定。
+4-0014-AVDD28`。U-Boot 只用板级 DTS 的标准 GPIO hog 提前拉高
+GPIO0_C0；Linux 启动时 GT9110 和 HYM8563 都由首次原生 probe 直接绑定，
+不再依赖用户态 late-bind。
 
 LT9211（`0x2d`）一直正常，是因为它挂在常开的 `vcc_1v8_s3` 上，不受
 `vcc1v8_sys` 开关影响——这个对照关系是定位问题的关键。
+
+经过禁用服务的对照冷启动，GT9110、HYM8563、LT9211 和 AP6275P
+均在首次 probe 中成功。以下旧 workaround 已从镜像构建流程删除：
+
+- `really-touch-late-bind`
+- `really-rtc-late-bind`
+- `really-wifi-late-load`
+- `really-usb-hid-recovery` 的 30 秒强制重授权 timer
+- `really-phy-leds` 常驻 service
+
+USB 键盘接收器与其 GL3523 USB2 hub 改由窄匹配 udev 规则永久关闭
+runtime autosuspend；PHY LED 的 `netdev` trigger 和 `end0` 关联来自
+主设备树，udev 只设置 YT8531 的链路/活动硬件规则。
 
 GPIO1_D0 实际上是触摸/面板共用使能，不是 eDP 专属信号。当前 DTS 用
 独立常开的 `touch_panel_pwr` regulator 保持原厂上电状态，因此无论

@@ -71,10 +71,10 @@ closed result for the current baseline. Current runs repeatedly leave
 - The AP6275P 32.768 kHz LFO comes from HYM8563 CLKOUT. The temporary
   `wifi-lpo` fixed-clock masked the RTC bring-up race but also made the
   firmware fail with `FW failed to initialize`.
-- Both the WiFi PCI function and Bluetooth UART now reference
-  `<&hym8563>`. Since HYM8563 is itself brought up by the I2C4 late-bind
-  service, `really-wifi-late-load.service` waits for RTC, verifies CLKOUT,
-  rescans PCIe and loads `brcmfmac`.
+- Both the WiFi PCI function and Bluetooth UART reference `<&hym8563>`.
+  HYM8563 now binds during the initial I2C4 probe, so AP6275P also probes
+  normally; there is no userspace late-load, PCIe rescan, or forced module
+  binding.
 
 Cold-boot validation on 2026-11-16:
 
@@ -220,15 +220,16 @@ Root cause and verified fix:
 ### Ethernet, fans, keys and power
 
 - GMAC0 uses RGMII, PHY address 1, GPIO2_C4 reset and `tx_delay = 0x44`.
-- YT8531 PHY LEDs are configured through `ledtrig-netdev`.
+- YT8531 PHY LEDs use the DTS-selected `ledtrig-netdev` trigger. A narrow
+  udev rule sets the hardware green-link and yellow-RX/TX rules.
 - PWM2 drives the fan with a 40000 ns period (25 kHz) and inverted
   polarity.
 - SARADC channel 1 provides volume-up, volume-down, menu and back;
   channel 3 provides play/pause.
-- The GL3523 USB2 hub can enumerate the Riitek `1997:2535` receiver while
-  leaving its HID endpoint silent after reboot. A delayed systemd timer
-  re-authorizes only that receiver after boot; `evtest` confirmed that this
-  restores real key events without rebooting the board.
+- The Riitek `1997:2535` receiver and its GL3523 `05e3:0610` USB2 hub are
+  kept out of runtime suspend by a narrow udev rule. The old boot-time
+  re-authorize timer was removed because it caused a duplicate HID
+  enumeration and did not address later idle disconnects.
 - Internal RK3588 watchdog and external GPIO0_D3 watchdog remain disabled.
 
 ## Electronically validated facts
@@ -269,9 +270,9 @@ click. The click is more likely ES8388/amplifier power-on or mute timing.
 5. Type-C DP is open, not merely limited to 4K30. Current `DP-1` is
    disconnected and the HUSB311 Type-C partner repeatedly detaches. Previous
    two-lane 4K30 success must not be used as a final validation claim.
-6. TF boot is still unresolved at U-Boot runtime despite correct aliases and
-   SD regulators. See `../u-boot-mainline/TF-BOOT-STATUS.md`; do not trust the
-   old claim that TF boot already works.
+6. TF boot is closed. A cold boot through the community SPL/U-Boot chain
+   mounted ext4 UUID `7faf7863-d5d5-419e-81bd-902914de6883` from
+   `/dev/mmcblk1p1`.
 
 ## Relevant build-tree files
 

@@ -69,13 +69,32 @@ SD bus = the SoC's default clk/cmd/det/bus4 pinctrl
 SD card detect = no board-level cd-gpios override
 ```
 
-**This chain was briefly lost and has been restored.** Commit `2b7fb0e26`
-added the four switched module rails (for GT9110 and HYM8563) but deleted the
-whole `&spi2` + RK806 block along with `vqmmc-supply` and the `vin-supply` link
-on `vcc_sd` in the same diff. The archived file in this directory kept the PMIC,
-which is why the archive and the build tree disagreed for a while. The build
-tree is now correct again and both copies match. Whenever you touch this DTS,
-diff the whole file rather than reading the commit subject.
+**This chain was briefly lost and has been restored.** An earlier module-rail
+change deleted the whole `&spi2` + RK806 block along with `vqmmc-supply` and
+the `vin-supply` link on `vcc_sd`. The final tree restores the SD chain and
+keeps module power limited to the one switched GPIO0_C0 rail needed by the
+I2C4 devices. Whenever you touch this DTS, diff the whole file rather than
+reading the commit subject.
+
+### Switched module rail
+
+The U-Boot board DTS uses the standard GPIO hog mechanism:
+
+```dts
+&gpio0 {
+	vcc1v8-sys-en-hog {
+		gpio-hog;
+		gpios = <16 0>;
+		output-high;
+		line-name = "vcc1v8_sys_en";
+	};
+};
+```
+
+`CONFIG_GPIO_HOG=y` is part of `really-rk3588_defconfig`. This replaces the
+old generic `arch/arm/mach-rockchip/board.c` patch that forced four rails.
+The fixed 2.8 V rail and always-on 5 V rail need no software enable; the LVDS
+rail belongs to the Linux display stack.
 
 ### Power domains
 
@@ -92,16 +111,15 @@ always worked here and TF has not. See
 `boot_targets` mechanism after SPL. No board-specific `preboot` loader is part
 of the final configuration.
 
-See [TF-BOOT-STATUS.md](TF-BOOT-STATUS.md) for the verified facts, current
-blocker, and the checks that must pass before calling TF boot complete.
+See [TF-BOOT-STATUS.md](TF-BOOT-STATUS.md) for the final cold-boot evidence.
+TF boot is closed.
 
 The Armbian build-time board patches are archived under
 [`board_really/`](board_really/README.md). They include boot logging,
-boot-target selection, reboot-mode handling, module-rail enablement in
-`board_init()`, and one explicitly ineffective SDMMC power-domain experiment
-(`0004`, kept for the record: the SPL write to the PMU is ignored because the
-normal world has no power-domain access). The build-tree copies remain the source of
-truth.
+boot-target selection, reboot-mode handling, and one explicitly ineffective
+SDMMC power-domain experiment (`0004`, kept for the record). Module-rail
+power is now board-DTS only and has no generic-source patch. The build-tree
+copies remain the source of truth.
 
 This is separate from the Linux DTS. Changes to either side must be checked
 against its own binding and runtime behavior.

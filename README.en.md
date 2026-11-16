@@ -9,8 +9,8 @@ Linux 7.3 board changes and validation boundary.
 
 See
 [`docs/AI-HANDOVER-CHECKLIST-20261115.md`](docs/AI-HANDOVER-CHECKLIST-20261115.md)
-for the current full status, unresolved TF boot work, Android touch baseline
-plan, and the recommended takeover order.
+for the current full status, Android touch baseline plan, and the
+recommended takeover order.
 
 See [`dts-6.1-linux/FIXES.md`](dts-6.1-linux/FIXES.md) for the vendor 6.1
 fixes, synchronized 7.3 items and deliberately unsynchronized driver-model
@@ -57,8 +57,9 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 
 ## Current Mainline 7.3 Runtime Status
 
-The current baseline runs `7.3.4-edge-rockchip64`. Display, touch, RTC,
-Wi-Fi, Bluetooth and fan behavior were hardware-validated on 2026-11-16.
+The current baseline runs `7.3.4-edge-rockchip64` from the TF card
+(`/dev/mmcblk1p1`). Display, touch, RTC, Wi-Fi, Bluetooth, fan and TF boot
+were hardware-validated on 2026-11-16.
 
 - LVDS remains connected and functional.
 - USB-C DP is not closed. The current `DP-1` state is disconnected, no
@@ -74,6 +75,18 @@ Wi-Fi, Bluetooth and fan behavior were hardware-validated on 2026-11-16.
 - I2C4 now works for LT9211 `0x2d`, GT9110 `0x14`, and HYM8563 `0x51`.
 - AP6275P Wi-Fi starts firmware `18.35.387.23.146` and connects with the
   real HYM8563 LPO clock. Bluetooth identifies as BCM43752A2.
+- TF boot is closed: the kernel mounted its ext4 root from
+  `/dev/mmcblk1p1` after a cold boot through the community SPL/U-Boot chain.
+
+The old touch, RTC and Wi-Fi late services have been removed from the image.
+U-Boot raises only the switched GPIO0_C0 rail through a board-DTS GPIO hog.
+Mainline probing now binds GT9110, HYM8563, LT9211 and AP6275P without a
+userspace rebind. The USB receiver/hub runtime-suspend policy and YT8531 LED
+hardware rules are handled by narrow one-shot udev rules.
+
+See
+[`reports/workaround-audit-20261116/README.md`](reports/workaround-audit-20261116/README.md)
+for the controlled reboot evidence and remaining idle-soak check.
 
 See
 [`reports/mainline-open-issues-20261115-2130/README.md`](reports/mainline-open-issues-20261115-2130/README.md)
@@ -234,17 +247,16 @@ its existing disabled-eDP baseline until that model is validated.
 - dual-link LT9211 LVDS with odd/even pixel channels, factory DSI
   `BURST + LPM` flags and the optional board-level
   `lontium,dsi-mode-flags` property;
-- AP6275P uses the real HYM8563 32.768 kHz CLKOUT; a late-load service
-  rescans PCIe and loads `brcmfmac` after the RTC late-bind completes;
+- AP6275P uses the real HYM8563 32.768 kHz CLKOUT and probes normally after
+  the I2C4 devices bind;
 - PWM2 fan, PWM6 eDP backlight and PWM12 LVDS backlight;
 - SARADC keys, thermal protection and fan cooling maps.
 
 ## Known Limitations
 
 1. Linux 7.3 enables the available mainline NPU, RGA, JPEG encoder, VPU decoder, RKVDEC and AV1 nodes. RK3588 RKCIF/RKISP capture nodes and standalone RKVENC device nodes are not provided by this mainline release.
-2. AP6275P Wi-Fi/BT passes cold-boot validation. The PCIe endpoint must be
-   rescanned after HYM8563 LPO is available; do not move `brcmfmac` probing
-   back before the RTC late-bind.
+2. AP6275P Wi-Fi/BT passes cold-boot validation with no userspace late-load
+   or PCIe rescan service.
 3. The physical eDP route is disabled by default because no panel is fitted.
    This avoids a transient HPD pulse injecting a 1024x768 no-EDID mode into
    fbcon. An eDP SKU should enable the controller, VP2 and AUX-panel status

@@ -21,6 +21,11 @@ depending on the build workstation.
 | `0003-really-act-on-reboot-mode.patch` | partially validated | `reboot loader` is verified; storage-specific targets map SD/eMMC/USB/NVMe and recovery to U-Boot shell. |
 | `0004-really-sdmmc-power-domain-in-spl.patch` | experimental / ineffective | Direct PMU write for `PD_SDMMC`. Tested and did not power the TF controller. Do not treat as the fix. |
 
+Module-rail power is intentionally not in this patch directory. It is
+implemented with a standard GPIO hog in the board U-Boot DTS and
+`CONFIG_GPIO_HOG=y` in the board defconfig, so no generic Rockchip source file
+is changed for board power sequencing.
+
 ## Important TF warning
 
 `0004` does not make TF boot work. The current evidence is:
@@ -55,4 +60,3 @@ cmp \
   "$build/patch/u-boot/v2026.07/defconfig/really-rk3588_defconfig" \
   "$repo/u-boot-mainline/configs/really-rk3588_defconfig"
 ```
-

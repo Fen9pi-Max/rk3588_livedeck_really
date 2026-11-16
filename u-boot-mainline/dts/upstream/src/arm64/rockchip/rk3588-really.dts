@@ -13,67 +13,6 @@
 	model = "Really RK3588 Live Streaming Box";
 	compatible = "rockchip,rk3588-tvi2340r", "rockchip,rk3588";
 
-	/*
-	 * Rails that must be up before U-Boot hands over to Linux.
-	 *
-	 * vcc28_dvp (AVDD28) and vcc1v8_sys (VDDIO) feed the GT9110 touch
-	 * controller at I2C4 0x14 and the HYM8563 RTC at 0x51.  Linux probes
-	 * those before the rails have settled, so both NAK and the kernel needs
-	 * a userspace rebind to recover them.  vcc5v0_sys is their upstream
-	 * supply; lvds_pwr_en powers the LT9211 LVDS path.
-	 *
-	 * Declaring the nodes here is not enough on its own: nothing in U-Boot
-	 * probes a regulator-fixed device, so the enable GPIOs would stay low
-	 * for the whole boot.  board_init() drives them explicitly through
-	 * regulator_autoset_by_name().
-	 *
-	 * GPIO offsets are raw bank-pin numbers because this file does not
-	 * include the pinctrl dt-bindings header: 16 = GPIO0_C0,
-	 * 14 = GPIO3_B6.  This matches the vcc_sd node below.
-	 */
-	vcc5v0_sys: regulator-vcc5v0-sys {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc5v0_sys";
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		regulator-always-on;
-		regulator-boot-on;
-	};
-
-	vcc28_dvp: regulator-vcc28-dvp {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc28_dvp";
-		regulator-min-microvolt = <2800000>;
-		regulator-max-microvolt = <2800000>;
-		regulator-always-on;
-		regulator-boot-on;
-		vin-supply = <&vcc5v0_sys>;
-	};
-
-	vcc1v8_sys: regulator-vcc1v8-sys {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio0 16 0>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&really_vcc1v8_sys_en>;
-		regulator-name = "vcc1v8_sys";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-		regulator-always-on;
-		regulator-boot-on;
-	};
-
-	lvds_pwr_en: regulator-lvds-pwr-en {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio3 14 0>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&really_lvds_pwren>;
-		regulator-name = "lvds_pwr_en";
-		regulator-always-on;
-		regulator-boot-on;
-	};
-
 	vcc_sd: regulator-vcc-sd {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc_sd";
@@ -103,13 +42,21 @@
 	really_sdmmc_pwr: sdmmc-pwr {
 		rockchip,pins = <4 19 0 &pcfg_pull_none>;
 	};
+};
 
-	really_vcc1v8_sys_en: vcc1v8-sys-en {
-		rockchip,pins = <0 16 0 &pcfg_pull_up>;
-	};
-
-	really_lvds_pwren: lvds-pwren {
-		rockchip,pins = <3 14 0 &pcfg_pull_none>;
+/*
+ * GPIO0_C0 enables the shared 1.8 V I/O rail for the GT9110 touch controller
+ * and HYM8563 RTC on I2C4.  U-Boot does not autoprobe regulator-fixed nodes,
+ * but the standard GPIO hog path runs during driver-model autoprobe and keeps
+ * the rail enabled until Linux takes ownership.  The 2.8 V rail is fixed and
+ * the 5 V rail is always supplied; neither has a controllable enable here.
+ */
+&gpio0 {
+	vcc1v8-sys-en-hog {
+		gpio-hog;
+		gpios = <16 0>;
+		output-high;
+		line-name = "vcc1v8_sys_en";
 	};
 };
 
