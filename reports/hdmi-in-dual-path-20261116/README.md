@@ -152,7 +152,16 @@ Y 均值 42.2、非黑像素 99.0%。DMA 中断 0 → 4421。
 | 内核源码 of_match | `snps_hdmirx.c:2810` → `rockchip,rk3588-hdmirx-ctrler` 完全匹配 |
 
 设备树齐全、驱动能加载、字符串能匹配，但 platform device 不生成。
-说明卡在 **TF-A / BL31 层**，不是 DTS 也不是模块加载。
+
+**注意：这是 Skysi X5 上的观测，不能作为 Really 的结论。**
+Skysi 的运行时 DTB 里该节点是 `disabled`，本来就该不注册：
+
+```text
+od -An -c /sys/firmware/devicetree/base/hdmi_receiver@fdee0000/status
+   d   i   s   a   b   l   e   d \0
+```
+
+`disabled` 节点内核不建 platform device，属正常行为，**不是 ATF 拦截**。
 
 ### 3.3 关键前置：必须在 Really 上验证，不是 Skysi X5
 
@@ -204,10 +213,13 @@ sudo dmesg | tail -30
 
 若确认 device 未注册，按此顺序推进：
 
-1. **TF-A**：RK3588 HDMIRX 需要 BL31 内的固件/时钟初始化支持。
-   上游 open-source TF-A 对此的支持程度需核实
-   （参考 `dts-6.1-linux/FIXES.md`、`AI-HANDOVER-CHECKLIST:579`
-   已记录「HDMI IN mainline 仍需 open-source TF-A HDMIRX 支持」）。
+1. **先看 probe 报错**（不是先怀疑 ATF）：
+   mainline 的 `snps_hdmirx` 驱动**不调用 SIP/SMC**，
+   `grep -n "smc\|sip" snps_hdmirx.c` 只命中作者名 `Osipenko`。
+   它只用常规资源：4 个 reset（`axi`/`apb`/`ref`/`biu`）、7 个 clock、
+   `rockchip,grf`、`rockchip,vo1-grf`、`hpd` GPIO、CMA。
+   这些都已在 `rk3588-extra.dtsi:313` 定义齐全。
+   所以挂上模块后应优先读 probe 的具体错误，而不是假定 ATF 缺东西。
 2. **HPD 属性名差异（引脚一致，已核实）**：
    原厂 `hdmirx-det-gpios = <&gpio4 RK_PC6 ACTIVE_LOW>` + `hpd-trigger-level = <1>`；
    mainline `hpd-gpios = <&gpio4 RK_PC6 GPIO_ACTIVE_LOW>` + `hpd-is-active-low`。
@@ -243,7 +255,7 @@ pinctrl 逐项对照（原厂 DTB vs mainline `rk3588-base-pinctrl.dtsi`）：
 
 **结论：7.3 mainline 的 HDMI IN 引脚配置完全正确，与原厂逐根对齐。**
 先前的「引脚不一致」判断是把 `323` 误读成 gpio1 bank 编号导致的，
-已撤回。排查方向应从引脚转向 TF-A 与驱动绑定。
+已撤回。排查方向应从引脚转向驱动 probe 报错。
 
 ## 四、待办 2（P2）：内部隐藏 HDMI IN（LT6911C）
 
@@ -425,7 +437,7 @@ CONFIG_PHY_ROCKCHIP_CSI2_DPHY=y
 
 面板口 P0 不受影响，以下是内部口的独立工作项：
 
-1. **面板口 DTS 保持不动**，排查直接跳 TF-A / 驱动绑定，不要再动引脚。
+1. **面板口 DTS 保持不动**，排查直接看驱动 probe 报错，不要再动引脚，也不必动 ATF。
 2. **内部口短期不做 → 两份 DTS 都置 `status = "disabled"`**，
    避免 dmesg 噪音。
 3. **要做的话，最小改动路径（vendor 6.1）**：
@@ -439,6 +451,78 @@ CONFIG_PHY_ROCKCHIP_CSI2_DPHY=y
    若打出 `chipid err, read:0xXXXX, expect:0x516`，说明丝印判断有误，
    需回头核对是不是真的 C 版。
 
+## 四之三、ATF 替换可行性调研（结论：不需要）
+
+问题：能否把 Armbian 构建树里的闭源 BL31 blob 换成开源 ATF？
+结论：**技术上可以，但对 HDMI IN 没有帮助，不做。**
+
+### 4y.1 mainline 驱动不依赖 ATF
+
+```text
+grep -n "smc\|sip" \
+  drivers/media/platform/synopsys/hdmirx/snps_hdmirx.c
+
+5:    * Author: Dmitry Osipenko <...>       <- 作者名里的 "Osip"
+2829: MODULE_AUTHOR("Dmitry Osipenko <...>") <- 同上
+```
+
+**零命中真正的 SMC/SIP 调用。** 驱动走的全是常规资源：
+4 个 reset、7 个 clock、`rockchip,grf`、`rockchip,vo1-grf`、
+`hpd` GPIO、CMA 保留内存。这些在 `rk3588-extra.dtsi:313` 里都齐全。
+
+vendor BL31 里确实有 HDMIRX 代码：
+
+```text
+strings rk3588_bl31_v1.48.elf | grep -i hdmirx
+hdmirx_reg_pre_fetch
+hdmirx_info_notify
+hdmirx_config_handler
+（挂在 rockchip_sip_svc 下）
+```
+
+但那是给 **vendor 内核 `rk_hdmirx` 驱动**用的私有 SIP 路径。
+mainline 驱动直接 MMIO，两条路不共用。所以换不换 ATF，
+对 mainline 的 HDMI IN 没有影响。
+
+### 4y.2 若将来真要换（记录做法，非当前任务）
+
+构建树已内置该路线，改一个变量即可：
+
+```text
+config/sources/families/include/rockchip64_common.inc:206
+
+binman-atf-mainline)
+    ATF_COMPILE=yes
+    ATFSOURCE=https://github.com/ARM-software/arm-trusted-firmware
+    ATFBRANCH=tag:v2.13.0
+    ATF_TARGET_MAP="... PLAT=$BOOT_SOC bl31;;build/$BOOT_SOC/release/bl31/bl31.elf:bl31.elf"
+    UBOOT_TARGET_MAP="BL31=bl31.elf ROCKCHIP_TPL=$RKBIN_DIR/$DDR_BLOB;;u-boot-rockchip.bin"
+```
+
+板级只需：
+
+```bash
+BOOT_SCENARIO="binman-atf-mainline"   # 当前是 "binman"
+```
+
+DDR TPL 仍用 rkbin blob，只把 BL31 换成自编。
+
+**风险（必须先知道）：**
+
+1. 上游 `plat/rockchip/rk3588/plat_sip_calls.c` 的 `switch` **只有
+   `RK_SIP_SCMI_AGENT0` 一条**，其余一律返回 `SMC_UNK`。
+   任何依赖 vendor SIP 的功能都会失效。
+2. Armbian 的 `patch/atf/atf-rockchip64/v2.13/` 里**没有 rk3588 相关补丁**，
+   只有 rk3328/rk3399 的。这条路线在 rk3588 上未经 Armbian 打磨。
+3. 当前用的 `rk3588_bl31_v1.48.elf` 是 Rockchip 验证过的版本，
+   换自编 ATF 会引入不确定性，需全量回归（网卡/PCIe/USB/DP/亮度/触屏）。
+
+### 4y.3 决定
+
+**为 HDMI IN 换 ATF 是错误方向，不做。**
+若日后出于「去闭源依赖 / 长期可维护」的独立目标再考虑，
+应按整体替换 + 全项回归来做，不能只盯 HDMI IN。
+
 ## 五、与既往结论的差异记录（避免重复踩坑）
 
 | 既往说法 | 实际情况 | 依据 |
@@ -450,6 +534,7 @@ CONFIG_PHY_ROCKCHIP_CSI2_DPHY=y
 | 内部口芯片是 LT6911UXC2 | **错**。拆机丝印是 **LT6911C** | 用户拆机确认 |
 | 原厂 HPD 用 gpio1 RK_PD6，与 mainline 不一致 | **错**。`323`=phandle 指向 gpio4，实际同为 GPIO4_C6 | 原厂 DTB 反查 `phandle = <0x143>` |
 | 内部口没有可用驱动 | **错**。vendor 6.1 有 `lt6911c.c`，只是 `CONFIG_VIDEO_LT6911C` 未开 | worktree `.config:5138` |
+| mainline HDMI IN 卡在 TF-A | **错**。驱动不调用 SIP/SMC，只用常规 reset/clock/grf；Skysi 上不注册只因节点是 `disabled` | `snps_hdmirx.c` 全文无真实 smc 调用 |
 
 ---
 
@@ -472,5 +557,5 @@ CONFIG_PHY_ROCKCHIP_CSI2_DPHY=y
 1. **在真正的 Really 上**执行 3.4 的六条验证命令，确认
    `fdee0000` 是否注册（这是唯一未定的关键事实）。
 2. 若未注册 → 复核 3.6 的 HPD 引脚（GPIO1_D6 vs GPIO4_C6）。
-3. 若引脚修正后仍不注册 → 转向 TF-A BL31 侧 HDMIRX 支持。
+3. 若 probe 报 reset/clock/grf 缺失 → 按报错补 DTS；ATF 不需要动。
 4. 视情况将 `lt6911` 节点先置 `disabled`，清理 dmesg 噪音。
