@@ -53,3 +53,14 @@ LVDS-1: connected + enabled, lt9211 零报错
 - 主线 u-boot 的 TF 卡识别仍 -110（SCMI 电源域议题，本日未动）
 - Type-C 中断脚（GPIO0_D7→B7）修复未入本镜像（typec-dp 报告已有方案）
 - eMMC 上现为 fix-test 镜像；正式重建（含本修复）随时可出
+
+## 七、TypeC partner/DP 卡点分析（2026-11-18 补充）
+
+tcpm 卡在 SRC_ATTACH_WAIT → SRC_ATTACHED 需要 vbus_vsafe0v=true。
+HUSB311 (RT1711H 克隆) POWER_STATUS=0x0C 同时置位 VSAFE0V(0x04)+PRESENT(0x08)，
+真 RT1711H 不会两态并存。tcpm 将 vbus_vsafe0v 判 false → 永不迁移。
+
+**修复方向**: tcpci_rt1711h 驱动加 HUSB311 quirk（检测两位同时置位时
+强制清 PRESENT 位），或 tcpm 层面对 0x0C 做兼容处理。
+
+中断修复(B7)已验证生效: IRQ114 level 计数正常，CC2 检测到附着。
