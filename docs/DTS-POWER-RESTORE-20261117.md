@@ -3,7 +3,7 @@
 - 执行时间：2026-11-17 01:20 — 01:45
 - 基准：原厂 Android 12 5.10 DTB（`dtb-5.10-android/rk3588-really.dtb`）
 - 参照：7.3 mainline 实机调试结果
-- 构建树：`/home/user/github/build`
+- 构建树：目标系统对应的 5.10 / 6.1 / 7.3 内核树
 
 ## 一、为什么漏掉了这么多电源配置
 
@@ -110,7 +110,7 @@ VDDIO-supply  = <&vcc1v8_sys>;  /* 1.8V */
 
 | 版本 | 内核树 | 命令 | 结果 |
 |---|---|---|---|
-| 5.10 android | `/home/user/workspace/device/rk3588-really-tvi2340r/sdk/linux-5.10` | `cpp` + `dtc` | 200704 字节，0 error |
+| 5.10 android | 目标 5.10 vendor 内核树 | `cpp` + `dtc` | 200704 字节，0 error |
 | 6.1 linux | `cache/sources/linux-kernel-worktree/6.1__rk35xx__arm64` | `make ARCH=arm64 rockchip/rk3588-really.dtb` | 299021 字节，0 error |
 | 6.1 android | 同上 | `make ARCH=arm64 rockchip/rk3588-really-android.dtb` | 299343 字节，0 error |
 | 7.3 linux | `cache/sources/linux-kernel-worktree/7.3__rockchip64__arm64` | `make ARCH=arm64 rockchip/rk3588-really.dtb` | 212190 字节，0 error |
@@ -187,3 +187,42 @@ cat /sys/kernel/debug/regulator/regulator_summary | grep -E "vcc1v8_sys|vcc28_dv
 
 三个轨都应显示 `enabled` 且有电压。若 `vcc1v8_sys` 未使能，先查
 GPIO0_C0 的 pinctrl 是否生效——7.3 早期就是漏了 pinctrl 导致引脚从未被驱动。
+
+## 五、后续修正：触控语义和遗漏 pinmux
+
+后续对 vendor 6.1 `drivers/input/touchscreen/goodix.c` 做了源码级复核：
+
+- 该驱动使用通用 `touchscreen_parse_properties()`，不是原厂私有 GT9xx
+  的方向表；
+- reset 先以逻辑 0 拉低，再以逻辑 1 释放，因此 reset-gpios 应为
+  ACTIVE_HIGH；
+- IRQ 在复位阶段用逻辑 1 选择 `0x14` 地址，因此 irq-gpios 也应为
+  ACTIVE_HIGH；
+- 固件配置中的轴范围会被读取，DTS 不再硬写 `touchscreen-size-*`；
+- Linux 仍需要 inverted-x + swapped-x-y 对应 270 度面板，Android 保留
+  原厂 framework 旋转映射。
+
+因此前文“6.1 触控坐标保持 1920x1080、不加上下文”只适用于原厂私有
+GT9xx 驱动，不适用于当前 6.1 DTS 实际绑定的 mainline Goodix 驱动。
+
+后续审计还补回天禧 AI 电源树中漏掉的 pinctrl：`mipi_cam_pwen`、
+`vcc_5g_dpr_ctl`、`power_on_led`。电源节点只有 `gpio`、没有
+`pinctrl-0` 时，引脚仍可能停留在默认复用，不能只看 regulator 是否存在。
+
+## 六、7.3 同步与核心板 MIPI 摄像头确认
+
+7.3 硬件仓库此前只有 43 个 regulator，落后构建树 9 个。现已补回
+`vcc4v0_sys`、三个中间轨、四个 PCIe AVDD 轨和 `power_on_led`，并把
+`vcc28_dvp` 改为由 `vcc4v0_sys` 供电。
+
+同时回移 HUSB311 GPIO0_B7、OTG PHY VBUS、Wi-Fi host-wake、24C04 EEPROM
+和 STK8BA50。
+
+实机确认 MIPI 摄像头接口位于核心板而不是载板，默认产品摄像头是 USB UVC。因此：
+
+- 原厂 5.10 Android 恢复 DTS 保留 IMX577；
+- 当前 6.1 Linux/Android 恢复 IMX577、CSI0 图和 `mipi_cam_pwen`；
+- 7.3 保留 `mipi_cam_pwen`；主线尚无 IMX577 驱动，暂不启用传感器节点。
+
+24C04 在原厂 DTB 中没有 label、nvmem cell、MAC 或 EDID 引用，内容用途
+仍需上机读取确认。先只读导出，不做写入。

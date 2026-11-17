@@ -300,3 +300,36 @@ patch/kernel/archive/rockchip64-7.3/dt/rk3588-really.dts
 config/kernel/linux-rockchip64-edge.config
 userpatches/customize-image.sh
 ```
+
+## 2026-11-17 backport audit
+
+The hardware repository was behind the build tree by nine regulator nodes.
+They are now synchronized locally:
+
+- `vcc4v0_sys`, `vcc3v3_ext`, `vcc12_dvp`;
+- `vcc1v8_pmu_ddr_s3`;
+- `pcie20_avdd0v85`, `pcie20_avdd1v8`;
+- `pcie30_avdd0v75`, `pcie30_avdd1v8`;
+- `power_on_led`, with GPIO3_D0 pinctrl and disabled boot state.
+
+`vcc28_dvp` now derives from `vcc4v0_sys`. The HUSB311 interrupt was corrected
+to GPIO0_B7, `u2phy0_otg` gained its VBUS supply, and AP6275P host-wake was
+added on GPIO0_B2.
+
+I2C4 `0x56` now exposes the 24C04 EEPROM and I2C6 `0x18` exposes the STK8BA50
+accelerometer. Both mainline drivers exist in this tree.
+
+The default product camera is USB UVC. The IMX577 MIPI camera interface is
+on the core board rather than the carrier board. Linux 7.3 currently has no
+mainline IMX577 sensor driver, so no enabled IMX577 node or
+CSI0 capture path is enabled in 7.3.
+
+The factory DTB provides no label, nvmem cell, EDID or MAC consumer for the
+24C04, so its payload must be read before claiming a purpose. Do not write it.
+
+Validation:
+
+```text
+7.3 DTB: 120135 bytes
+SHA256:  0b6cc777e458dc8609b17472645a5fff3c6400978e441ce91ed83e4564e45512
+```

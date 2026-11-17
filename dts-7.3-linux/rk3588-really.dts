@@ -230,6 +230,35 @@
 		regulator-boot-on;
 	};
 
+	vcc4v0_sys: regulator-vcc4v0-sys {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc4v0_sys";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <4000000>;
+		regulator-max-microvolt = <4000000>;
+		vin-supply = <&vcc12v_dcin>;
+	};
+
+	vcc3v3_ext: regulator-vcc3v3-ext {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc3v3_ext";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+	};
+
+	vcc12_dvp: regulator-vcc12-dvp {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc12_dvp";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <12000000>;
+		regulator-max-microvolt = <12000000>;
+		vin-supply = <&vcc12v_dcin>;
+	};
+
 	vcc28_dvp: regulator-vcc28-dvp {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc28_dvp";
@@ -237,7 +266,7 @@
 		regulator-max-microvolt = <2800000>;
 		regulator-always-on;
 		regulator-boot-on;
-		vin-supply = <&vcc5v0_sys>;
+		vin-supply = <&vcc4v0_sys>;
 	};
 
 	mipi_cam_pwen: regulator-mipi-cam-pwen {
@@ -305,6 +334,51 @@
 		vin-supply = <&vcc_3v3_s3>;
 	};
 
+	vcc1v8_pmu_ddr_s3: regulator-vcc1v8-pmu-ddr-s3 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc1v8_pmu_ddr_s3";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+	};
+
+	pcie20_avdd0v85: regulator-pcie20-avdd0v85 {
+		compatible = "regulator-fixed";
+		regulator-name = "pcie20_avdd0v85";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <850000>;
+		regulator-max-microvolt = <850000>;
+	};
+
+	pcie20_avdd1v8: regulator-pcie20-avdd1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "pcie20_avdd1v8";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+	};
+
+	pcie30_avdd0v75: regulator-pcie30-avdd0v75 {
+		compatible = "regulator-fixed";
+		regulator-name = "pcie30_avdd0v75";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <750000>;
+		regulator-max-microvolt = <750000>;
+	};
+
+	pcie30_avdd1v8: regulator-pcie30-avdd1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "pcie30_avdd1v8";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+	};
+
 	/*
 	 * GPIO1_D0 is a shared touch and panel power enable, not an eDP-only
 	 * signal.  Keep its factory boot state independently of display
@@ -353,6 +427,16 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&vcc_5g_dpr_ctrl_pin>;
 		regulator-name = "vcc_5g_dpr_ctl";
+	};
+
+	power_on_led: regulator-power-on-led {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio3 RK_PD0 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&led_power_on>;
+		regulator-name = "power_on_led";
+		regulator-state-disabled;
 	};
 
 	vcc5v0_host: regulator-vcc5v0-host {
@@ -864,6 +948,13 @@
 		touchscreen-swapped-x-y;
 	};
 
+	eeprom@56 {
+		compatible = "atmel,24c04";
+		reg = <0x56>;
+		pagesize = <16>;
+		status = "okay";
+	};
+
 	hym8563: rtc@51 {
 		compatible = "haoyu,hym8563";
 		reg = <0x51>;
@@ -883,6 +974,16 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c6m0_xfer>;
 	status = "okay";
+
+	accelerometer@18 {
+		compatible = "sensortek,stk8ba50";
+		reg = <0x18>;
+		interrupt-parent = <&gpio4>;
+		interrupts = <RK_PB7 IRQ_TYPE_EDGE_RISING>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&stk8baxx_irq>;
+		status = "okay";
+	};
 
 	lt6911: bridge@2b {
 		compatible = "lontium,lt6911uxc2";
@@ -914,7 +1015,7 @@
 		compatible = "hynetek,husb311";
 		reg = <0x4e>;
 		interrupt-parent = <&gpio0>;
-		interrupts = <RK_PD7 IRQ_TYPE_LEVEL_LOW>;
+		interrupts = <RK_PB7 IRQ_TYPE_LEVEL_LOW>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&usbc0_int>;
 		vbus-supply = <&vbus5v0_typec>;
@@ -1098,6 +1199,11 @@
 			reg = <0x410000 0 0 0 0>;
 			clocks = <&hym8563>;
 			clock-names = "lpo";
+			interrupt-parent = <&gpio0>;
+			interrupts = <RK_PB2 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "host-wake";
+			pinctrl-names = "default";
+			pinctrl-0 = <&wifi_host_wake_irq>;
 		};
 	};
 };
@@ -1127,6 +1233,18 @@
 };
 
 &pinctrl {
+	stk8baxx {
+		stk8baxx_irq: stk8baxx-irq {
+			rockchip,pins = <4 RK_PB7 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	led {
+		led_power_on: led-power-on {
+			rockchip,pins = <3 RK_PD0 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
 	camera {
 		camera_pwen: camera-pwen {
 			rockchip,pins = <1 RK_PA2 RK_FUNC_GPIO &pcfg_pull_none>;
@@ -1256,6 +1374,10 @@
 	};
 
 	wireless-wlan {
+		wifi_host_wake_irq: wifi-host-wake-irq {
+			rockchip,pins = <0 RK_PB2 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+
 		wifi_poweren_gpio: wifi-poweren-gpio {
 			rockchip,pins = <0 RK_PC4 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
@@ -1263,7 +1385,7 @@
 
 	usb {
 		usbc0_int: usbc0-int {
-			rockchip,pins = <0 RK_PD7 RK_FUNC_GPIO &pcfg_pull_up>;
+			rockchip,pins = <0 RK_PB7 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 
 		typec5v_pwren: typec5v-pwren {
@@ -1601,6 +1723,7 @@
 };
 
 &u2phy0_otg {
+	phy-supply = <&vbus5v0_typec>;
 	status = "okay";
 };
 

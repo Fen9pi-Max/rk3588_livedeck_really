@@ -58,13 +58,13 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rockchip/rk3588-really-android.
 已验证可编译的环境：
 
 ```text
-/home/user/github/build/cache/sources/linux-kernel-worktree/6.1__rk35xx__arm64
+使用目标 vendor 6.1 内核源码树
 （Armbian rockchip64 6.1.172 树，含 rk3588-android.dtsi）
 ```
 
 注意：该树版本为 6.1.172，而设备 Android 内核是 6.1.145。
 DTB 结构兼容，但若有 vendor 专有属性需求，应以
-`/home/user/github/linux-rockchip-6.1.145` 为准（该树目前缺 rk3588 dts）。
+目标 Android 内核实际使用的 DTSI 和驱动为准。
 
 ## 产物校验
 
@@ -73,3 +73,51 @@ rk3588-really-android.dtb
   size  295964
   sha256 f2801118cc36dc919cd33ec1beeca2275e8fea25cb29d861b92bd75bb86633dd
 ```
+
+## 2026-11-17 更新
+
+本节取代前文“仅 include 不同”、LT9211 继续禁用和旧 DTB 尺寸/哈希记录。
+Linux 与 Android 继续共享供电、GPIO、PDM、LT9211 和 Type-C 硬件事实，
+但触控旋转由不同用户态栈处理：
+
+- Linux 使用 `inverted-x + swapped-x-y`；
+- Android 保留原厂 framework 旋转映射。
+
+当前 Android DTS 已恢复 DSI1 → MIPIDCPHY1 → LT9211 → 双链路 LVDS，
+并补齐 PDM0、HYM8563 LPO、Wi-Fi host-wake、HUSB311 GPIO0_B7、
+ES8388 耳机检测和无用 `wifi_lpo` 清理。
+
+本轮 DTC 校验：
+
+```text
+Android DTB: 202865 bytes
+SHA256:      952c21b31e730c09f302b4db3fdca9eeb1e63540c125faf301a1beedcde12575
+```
+
+目标内核需启用 `CONFIG_DRM_LONTIUM_LT9211`；DSI1 双链路、触控映射、
+PDM0、Wi-Fi LPO 和 Type-C 仍需在目标 Android 镜像上实机验收。
+
+## 最终交叉审计
+
+Android 与 Linux 现已同步补齐：
+
+- 摄像头/5G/电源灯 GPIO regulator 缺失的 pinmux；
+- ES8388 原厂 I2S1 M0、耳机/线路输入 pinmux 与 DAPM；
+- 标准 SARADC3 播放暂停键；
+- 24C04 EEPROM；IMX577 与 CSI0 图随核心板 MIPI 接口恢复；
+- I2C6 `0x18` STK8BAxx 加速度计；
+- HYM8563 LPO、PDM0、LT9211 双链路、HUSB311 GPIO0_B7。
+
+最终 DTB：
+
+```text
+size   202865
+sha256 952c21b31e730c09f302b4db3fdca9eeb1e63540c125faf301a1beedcde12575
+```
+
+`lontium,lt6911uxc2` 在目标 vendor 树中仍没有完全匹配的 compatible。
+在补到对应 UXC2 驱动前，隐藏 HDMI IN 路径只能视为“DTS 已描述、驱动未闭环”。
+
+合并前还需确认目标 config 已启用 LT9211/LVDS panel、STK8BA50、
+AT24 EEPROM、Rockchip PDM/DMIC、HYM8563 和 HUSB311。当前 vendor
+`rockchip_linux_defconfig` 并未覆盖这里新增的全部外设。

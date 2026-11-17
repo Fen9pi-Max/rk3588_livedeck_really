@@ -50,7 +50,7 @@ SHA256: D516E8F62CE040E76CAB2CBC394DBE46AB53F3F82E9CEC1ED8E5714F51358521
 | RTC | HYM8563 at I2C4 `0x51` |
 | Touch | Goodix GT9110 at I2C4 `0x14` |
 | HDMI input | RK3588 built-in HDMI RX with GPIO4_C6 HPD/detect; LT6911UXC2 at I2C6 `0x2b` |
-| Camera | IMX577 at I2C4 `0x1a` |
+| Camera | USB UVC by default with GPIO4_A6 5 V enable; the IMX577 MIPI interface is on the core board |
 | Wireless | AP6275P Wi-Fi and Bluetooth |
 | Fan | PWM2, 40000 ns period (25 kHz), inverted output |
 | Watchdog | Internal RK3588 DW watchdog and external GPIO0_D3 watchdog are both explicitly disabled |
