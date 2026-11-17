@@ -20,6 +20,27 @@
 
 	compatible = "rockchip,rk3588-tvi2340r", "rockchip,rk3588";
 
+	/* PMU0 GRF reboot-mode: 与 U-Boot 0003 补丁配对,支持 reboot sd/emmc/usb/loader。
+	 * 来源: DeepSeek 镜像 DTB (syscon@fd588000), 公开仓 dts 同步 v85 时缺失, 此处补回。 */
+	pmu0_grf: syscon@fd588000 {
+		compatible = "rockchip,rk3588-pmu0-grf", "syscon", "simple-mfd";
+		reg = <0x0 0xfd588000 0x0 0x2000>;
+
+		reboot-mode {
+			compatible = "syscon-reboot-mode";
+			offset = <0x80>;
+			mode-bootloader = <0x5242c301>;
+			mode-loader = <0x5242c301>;
+			mode-normal = <0x5242c300>;
+			mode-recovery = <0x5242c303>;
+			mode-emmc = <0x5242c311>;
+			mode-nvme = <0x5242c310>;
+			mode-sd = <0x5242c312>;
+			mode-tf = <0x5242c312>;
+			mode-usb = <0x5242c313>;
+		};
+	};
+
 	adc-keys {
 		compatible = "adc-keys";
 		io-channels = <&saradc 1>;
@@ -49,6 +70,20 @@
 			label = "volume up";
 			linux,code = <115>;	/* KEY_VOLUMEUP */
 			press-threshold-microvolt = <17000>;
+		};
+	};
+
+	play-pause-keys {
+		compatible = "adc-keys";
+		io-channels = <&saradc 3>;
+		io-channel-names = "buttons";
+		keyup-threshold-microvolt = <1800000>;
+		poll-interval = <100>;
+
+		play-pause-key {
+			label = "playpause";
+			linux,code = <164>;	/* KEY_PLAYPAUSE */
+			press-threshold-microvolt = <200000>;
 		};
 	};
 
@@ -86,6 +121,7 @@
 		status = "okay";
 	};
 
+	/* eDP 背光: 与已验证镜像对齐, 默认 disabled (eDP0 实验链, SSH 迭代期再启用) */
 	backlight_edp: backlight-edp {
 		compatible = "pwm-backlight";
 		brightness-levels = <0 20 21 22 24 26 28 31 34 38 42 47 52 58
@@ -110,12 +146,17 @@
 		#clock-cells = <0>;
 	};
 
-	fan: pwm-fan {
-		compatible = "pwm-fan";
-		cooling-levels = <0 76 153 204>;
-		pwms = <&pwm2 0 40000 PWM_POLARITY_INVERTED>;
-		#cooling-cells = <2>;
-		status = "okay";
+	/*
+	 * The AP6275P LPO is a hardware 32.768 kHz clock.  HYM8563 may not
+	 * answer on I2C early enough (or at all on a cold boot), but its clock
+	 * output is autonomous.  Do not make WiFi/Bluetooth probe depend on
+	 * the RTC driver being ready.
+	 */
+	wifi_lpo: wifi-lpo {
+		compatible = "fixed-clock";
+		clock-frequency = <32768>;
+		clock-output-names = "wifi-lpo";
+		#clock-cells = <0>;
 	};
 
 	hdmi1-con {
@@ -128,36 +169,6 @@
 				remote-endpoint = <&hdmi1_out_con>;
 			};
 		};
-	};
-
-	headphone_amp: amplifier-headphone {
-		compatible = "simple-audio-amplifier";
-		enable-gpios = <&gpio4 RK_PB4 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&headphone_amp_en>;
-		sound-name-prefix = "Headphones Amplifier";
-	};
-
-	lvds_pwr_en: regulator-lvds-pwr-en {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio3 RK_PB6 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&lvds_pwren_pin>;
-		regulator-name = "lvds_pwr_en";
-		regulator-always-on;
-		regulator-boot-on;
-	};
-
-	mipi_cam_pwen: regulator-mipi-cam-pwen {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio1 RK_PA2 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&camera_pwen>;
-		regulator-name = "mipi_cam_pwen";
-		regulator-always-on;
-		regulator-boot-on;
 	};
 
 	panel_lvds: panel-lvds {
@@ -214,84 +225,226 @@
 		};
 	};
 
-	pcie20_avdd0v85: regulator-pcie20-avdd0v85 {
-		compatible = "regulator-fixed";
-		regulator-name = "pcie20_avdd0v85";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <850000>;
-		regulator-max-microvolt = <850000>;
-	};
-
-	pcie20_avdd1v8: regulator-pcie20-avdd1v8 {
-		compatible = "regulator-fixed";
-		regulator-name = "pcie20_avdd1v8";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-	};
-
-	pcie30_avdd0v75: regulator-pcie30-avdd0v75 {
-		compatible = "regulator-fixed";
-		regulator-name = "pcie30_avdd0v75";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <750000>;
-		regulator-max-microvolt = <750000>;
-	};
-
-	pcie30_avdd1v8: regulator-pcie30-avdd1v8 {
-		compatible = "regulator-fixed";
-		regulator-name = "pcie30_avdd1v8";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-	};
-
-	pdm_codec: pdm-codec {
-		compatible = "dmic-codec";
-		#sound-dai-cells = <0>;
-		num-channels = <2>;
-	};
-
-	pdm_mics: pdm-mics {
-		compatible = "simple-audio-card";
-		simple-audio-card,name = "Really-PDM-Mics";
+	fan: pwm-fan {
+		compatible = "pwm-fan";
+		cooling-levels = <0 76 153 204>;
+		pwms = <&pwm2 0 40000 PWM_POLARITY_INVERTED>;
+		#cooling-cells = <2>;
 		status = "okay";
-
-		simple-audio-card,cpu {
-			sound-dai = <&pdm0>;
-		};
-
-		simple-audio-card,codec {
-			sound-dai = <&pdm_codec>;
-		};
 	};
 
-	play-pause-keys {
-		compatible = "adc-keys";
-		io-channels = <&saradc 3>;
-		io-channel-names = "buttons";
-		keyup-threshold-microvolt = <1800000>;
-		poll-interval = <100>;
-
-		play-pause-key {
-			label = "playpause";
-			linux,code = <164>;	/* KEY_PLAYPAUSE */
-			press-threshold-microvolt = <200000>;
-		};
+	/* typec-extcon 桥: 已验证镜像未包含 (Alt-Mode 实验节点, SSH 迭代期再启用)
+	typec_extcon_bridge: typec-extcon {
+		compatible = "linux,typec-extcon-bridge";
+		mode-switch;
+		orientation-switch;
+		usb-role-switch;
+		svid = /bits/ 16 <0xff01>;
 	};
+	*/
 
-	power_on_led: regulator-power-on-led {
+	lvds_pwr_en: regulator-lvds-pwr-en {
 		compatible = "regulator-fixed";
 		enable-active-high;
-		gpio = <&gpio3 RK_PD0 GPIO_ACTIVE_HIGH>;
+		gpio = <&gpio3 RK_PB6 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&led_power_on>;
-		regulator-name = "power_on_led";
-		regulator-state-disabled;
+		pinctrl-0 = <&lvds_pwren_pin>;
+		regulator-name = "lvds_pwr_en";
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	/* mipi_cam_pwen 常开供电: 已验证镜像未包含 (相机电源实验, SSH 迭代期再启用)
+	mipi_cam_pwen: regulator-mipi-cam-pwen {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio1 RK_PA2 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&camera_pwen>;
+		regulator-name = "mipi_cam_pwen";
+		regulator-always-on;
+		regulator-boot-on;
+	};
+	*/
+
+	vbus5v0_typec: regulator-vbus5v0-typec {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio1 RK_PD1 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&typec5v_pwren>;
+		regulator-name = "vbus5v0_typec";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		vin-supply = <&vcc5v0_usb>;
+	};
+
+	vcc_1v1_nldo_s3: regulator-vcc-1v1-nldo-s3 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_1v1_nldo_s3";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <1100000>;
+		regulator-max-microvolt = <1100000>;
+		vin-supply = <&vcc5v0_sys>;
+	};
+
+	vcc_sd: regulator-vcc-sd {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio4 RK_PC3 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&sdmmc_pwr>;
+		regulator-name = "vcc_sd";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		startup-delay-us = <100000>;
+		vin-supply = <&vcc_3v3_s3>;
+	};
+
+	vcc12v_dcin: regulator-vcc12v-dcin {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc12v_dcin";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <12000000>;
+		regulator-max-microvolt = <12000000>;
+	};
+
+	vcc3v3_lcd_n: regulator-vcc3v3-lcd-n {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc3v3_lcd_n";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		vin-supply = <&vcc_3v3_s3>;
+	};
+
+	vcc3v3_pcie: regulator-vcc3v3-pcie {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio3 RK_PB3 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pcie2x1l1_pwr_en>;
+		regulator-name = "vcc3v3_pcie";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		vin-supply = <&vcc_3v3_s3>;
+	};
+
+	vcc_5g_module_rst: regulator-vcc-5g-module-rst {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio2 RK_PC5 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pcie2x1l1_5g_rst>;
+		regulator-name = "vcc_5g_module_rst";
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	vcc_5g_dpr_ctl: regulator-vcc-5g-dpr-ctl {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio3 RK_PD5 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&vcc_5g_dpr_ctrl_pin>;
+		regulator-name = "vcc_5g_dpr_ctl";
+	};
+
+	vcc5v0_host: regulator-vcc5v0-host {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio3 RK_PA5 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&vcc5v0_host_en>;
+		regulator-name = "vcc5v0_host";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		vin-supply = <&vcc5v0_sys>;
+	};
+
+	vcc5v0_sys: regulator-vcc5v0-sys {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc5v0_sys";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		vin-supply = <&vcc12v_dcin>;
+	};
+
+	vcc5v0_usb: regulator-vcc5v0-usb {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio4 RK_PA6 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&vcc5v0_usb_en>;
+		regulator-name = "vcc5v0_usb";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		vin-supply = <&vcc5v0_sys>;
+	};
+
+	vcc5v0_USB30: regulator-vcc5v0-usb30 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc5v0_USB30";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		vin-supply = <&vcc5v0_usb>;
+		/*
+		 * GPIO4_C6 is the primary HDMI RX 5V/HPD detect input on this
+		 * board, not a USB VBUS enable.  Keep the legacy USB30 control
+		 * disabled so it cannot claim the HPD pin during early probe.
+		 */
+		status = "disabled";
+	};
+
+	vcc5v0_usbdcin: regulator-vcc5v0-usbdcin {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc5v0_usbdcin";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		vin-supply = <&vcc12v_dcin>;
+	};
+
+	wifi_vbat: regulator-wifi-vbat {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio0 RK_PC4 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&wifi_poweren_gpio>;
+		regulator-name = "wifi_vbat";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		startup-delay-us = <100000>;
+	};
+
+	headphone_amp: amplifier-headphone {
+		compatible = "simple-audio-amplifier";
+		enable-gpios = <&gpio4 RK_PB4 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&headphone_amp_en>;
+		sound-name-prefix = "Headphones Amplifier";
+	};
+
+	speaker_amp: amplifier-speaker {
+		compatible = "simple-audio-amplifier";
+		enable-gpios = <&gpio4 RK_PB2 GPIO_ACTIVE_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&speaker_amp_en>;
+		sound-name-prefix = "Speaker Amplifier";
 	};
 
 	sound {
@@ -336,249 +489,6 @@
 		};
 	};
 
-	speaker_amp: amplifier-speaker {
-		compatible = "simple-audio-amplifier";
-		enable-gpios = <&gpio4 RK_PB2 GPIO_ACTIVE_LOW>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&speaker_amp_en>;
-		sound-name-prefix = "Speaker Amplifier";
-	};
-
-	/*
-	 * GPIO1_D0 is a shared touch and panel power enable, not an eDP-only
-	 * signal.  Keep its factory boot state independently of display
-	 * routing so removing an optional panel cannot disable touch.
-	 */
-	touch_panel_pwr: regulator-touch-panel-pwr {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio1 RK_PD0 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&touch_panel_en>;
-		regulator-name = "touch_panel_pwr";
-		regulator-always-on;
-		regulator-boot-on;
-	};
-
-	typec_extcon_bridge: typec-extcon {
-		compatible = "linux,typec-extcon-bridge";
-		mode-switch;
-		orientation-switch;
-		usb-role-switch;
-		svid = /bits/ 16 <0xff01>;
-	};
-
-	vbus5v0_typec: regulator-vbus5v0-typec {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio1 RK_PD1 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&typec5v_pwren>;
-		regulator-name = "vbus5v0_typec";
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		vin-supply = <&vcc5v0_sys>;
-	};
-
-	vcc12_dvp: regulator-vcc12-dvp {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc12_dvp";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <12000000>;
-		regulator-max-microvolt = <12000000>;
-		vin-supply = <&vcc12v_dcin>;
-	};
-
-	vcc12v_dcin: regulator-vcc12v-dcin {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc12v_dcin";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <12000000>;
-		regulator-max-microvolt = <12000000>;
-	};
-
-	vcc1v8_pmu_ddr_s3: regulator-vcc1v8-pmu-ddr-s3 {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc1v8_pmu_ddr_s3";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-	};
-
-	vcc1v8_sys: regulator-vcc1v8-sys {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio0 RK_PC0 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&vcc1v8_sys_en>;
-		regulator-name = "vcc1v8_sys";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-		regulator-always-on;
-		regulator-boot-on;
-	};
-
-	vcc28_dvp: regulator-vcc28-dvp {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc28_dvp";
-		regulator-min-microvolt = <2800000>;
-		regulator-max-microvolt = <2800000>;
-		regulator-always-on;
-		regulator-boot-on;
-		vin-supply = <&vcc4v0_sys>;
-	};
-
-	vcc3v3_ext: regulator-vcc3v3-ext {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc3v3_ext";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-	};
-
-	vcc3v3_lcd_n: regulator-vcc3v3-lcd-n {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc3v3_lcd_n";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		vin-supply = <&vcc_3v3_s3>;
-	};
-
-	vcc3v3_pcie: regulator-vcc3v3-pcie {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio3 RK_PB3 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&pcie2x1l1_pwr_en>;
-		regulator-name = "vcc3v3_pcie";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		vin-supply = <&vcc_3v3_s3>;
-	};
-
-	vcc4v0_sys: regulator-vcc4v0-sys {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc4v0_sys";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <4000000>;
-		regulator-max-microvolt = <4000000>;
-		vin-supply = <&vcc12v_dcin>;
-	};
-
-	vcc5v0_USB30: regulator-vcc5v0-usb30 {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc5v0_USB30";
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		vin-supply = <&vcc5v0_usb>;
-		/*
-		 * GPIO4_C6 is the primary HDMI RX 5V/HPD detect input on this
-		 * board, not a USB VBUS enable.  Keep the legacy USB30 control
-		 * disabled so it cannot claim the HPD pin during early probe.
-		 */
-		status = "disabled";
-	};
-
-	vcc5v0_host: regulator-vcc5v0-host {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio3 RK_PA5 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&vcc5v0_host_en>;
-		regulator-name = "vcc5v0_host";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		vin-supply = <&vcc5v0_sys>;
-	};
-
-	vcc5v0_sys: regulator-vcc5v0-sys {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc5v0_sys";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		vin-supply = <&vcc12v_dcin>;
-	};
-
-	vcc5v0_usb: regulator-vcc5v0-usb {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio4 RK_PA6 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&vcc5v0_usb_en>;
-		regulator-name = "vcc5v0_usb";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		vin-supply = <&vcc5v0_sys>;
-	};
-
-	vcc5v0_usbdcin: regulator-vcc5v0-usbdcin {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc5v0_usbdcin";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		vin-supply = <&vcc12v_dcin>;
-	};
-
-	vcc_1v1_nldo_s3: regulator-vcc-1v1-nldo-s3 {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc_1v1_nldo_s3";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <1100000>;
-		regulator-max-microvolt = <1100000>;
-		vin-supply = <&vcc5v0_sys>;
-	};
-
-	vcc_5g_dpr_ctl: regulator-vcc-5g-dpr-ctl {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio3 RK_PD5 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&vcc_5g_dpr_ctrl_pin>;
-		regulator-name = "vcc_5g_dpr_ctl";
-	};
-
-	vcc_5g_module_rst: regulator-vcc-5g-module-rst {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio2 RK_PC5 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&pcie2x1l1_5g_rst>;
-		regulator-name = "vcc_5g_module_rst";
-		regulator-always-on;
-		regulator-boot-on;
-	};
-
-	vcc_sd: regulator-vcc-sd {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio4 RK_PC3 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&sdmmc_pwr>;
-		regulator-name = "vcc_sd";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		startup-delay-us = <100000>;
-		vin-supply = <&vcc_3v3_s3>;
-	};
-
 /*
  * Really carries an SGM760B-style external watchdog on GPIO0_D3.  The
  * factory DTB keeps both this device and the RK3588 DW watchdog disabled.
@@ -592,20 +502,6 @@
 		hw_margin_ms = <500>;
 		always-running;
 		status = "disabled";
-	};
-
-	wifi_vbat: regulator-wifi-vbat {
-		compatible = "regulator-fixed";
-		enable-active-high;
-		gpio = <&gpio0 RK_PC4 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&wifi_poweren_gpio>;
-		regulator-name = "wifi_vbat";
-		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		startup-delay-us = <100000>;
 	};
 };
 
@@ -709,46 +605,47 @@
 
 &edp0 {
 	/*
-	 * This assembly has no eDP panel.  Its internal display is
-	 * DSI1 -> LT9211 -> dual-link LVDS.  Keep eDP off by default so a
-	 * transient HPD pulse cannot make DRM add a 1024x768 fallback and
-	 * leave fbcon stuck in that mode.  GPIO1_D0 is still kept asserted by
-	 * touch_panel_pwr because it enables both the touch module and panel.
+	 * eDP0 is a factory-supported optional internal panel route on VP2.
+	 * 已验证镜像中 eDP0 = disabled（无 aux-bus 面板子树）。本复现镜像对齐之；
+	 * aux-bus 面板实验链保留在注释中，SSH 迭代期（fdtput/overlay）再启用。
 	 */
 	status = "disabled";
 
+	/*
 	aux-bus {
 		panel {
 			compatible = "edp-panel";
 			backlight = <&backlight_edp>;
+			enable-gpios = <&gpio1 RK_PD0 GPIO_ACTIVE_HIGH>;
 			hpd-absent-delay-ms = <120>;
 			power-supply = <&vcc_3v3_s3>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&edp_panel_en>;
 			rotation = <270>;
-			status = "disabled";
 
 			port {
 				panel_in_edp: endpoint {
 					remote-endpoint = <&edp0_out_panel>;
-					status = "disabled";
 				};
 			};
 		};
 	};
+	*/
 };
 
+/* eDP0 端点接线: 已验证镜像无 (随 eDP0 实验链整体禁用)
 &edp0_in {
 	edp0_in_vp2: endpoint {
 		remote-endpoint = <&vp2_out_edp0>;
-		status = "disabled";
 	};
 };
 
 &edp0_out {
 	edp0_out_panel: endpoint {
 		remote-endpoint = <&panel_in_edp>;
-		status = "disabled";
 	};
 };
+*/
 
 &gmac0 {
 	clock_in_out = "output";
@@ -890,37 +787,16 @@
 };
 
 &i2c4 {
-	clock-frequency = <100000>; /* 工厂基准; 400kHz 本机全设备 NAK(2026-11-17 位摆对照) */
+	clock-frequency = <100000>; /* 工厂基准: Android 实测 100kHz */
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c4m1_xfer>;
 	status = "okay";
 
-	eeprom@56 {
-		compatible = "atmel,24c04";
-		reg = <0x56>;
-		pagesize = <16>;
-		status = "okay";
-	};
-
-	hym8563: rtc@51 {
-		compatible = "haoyu,hym8563";
-		reg = <0x51>;
-		#clock-cells = <0>;
-		clock-frequency = <32768>;
-		clock-output-names = "hym8563";
-		interrupt-parent = <&gpio0>;
-		interrupts = <RK_PB0 IRQ_TYPE_LEVEL_LOW>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&hym8563_int>;
-		status = "okay";
-		wakeup-source;
-	};
-
 	lt9211: bridge@2d {
 		compatible = "lontium,lt9211";
 		reg = <0x2d>;
-		/* reset-gpios 移除: enable 期复位脉冲使芯片脱离总线(2026-11-17 实测);
-		 * A6 由 &gpio3 lt9211-rst-hold-hog 恒高维持(安卓同款稳态) */
+		/* reset-gpios 移除: 实测 enable 期复位脉冲会使芯片从总线上消失;
+		 * 复位改由下方 gpio-hog 恒高(=Android 生态位: 上电即释放, 永不重打) */
 		status = "okay";
 		vccio-supply = <&vcc_1v8_s3>;
 
@@ -959,15 +835,27 @@
 		interrupts = <RK_PB0 IRQ_TYPE_LEVEL_LOW>;
 		reset-gpios = <&gpio1 RK_PD3 GPIO_ACTIVE_HIGH>;
 		irq-gpios = <&gpio4 RK_PB0 GPIO_ACTIVE_HIGH>;
-		AVDD28-supply = <&vcc28_dvp>;
-		VDDIO-supply = <&vcc1v8_sys>;
+		AVDD28-supply = <&vcc_3v3_s3>;
+		VDDIO-supply = <&vcc_1v8_s3>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&gt9xx_gpios>;
 		status = "okay";
 		touchscreen-size-x = <1080>;
 		touchscreen-size-y = <1920>;
-		touchscreen-inverted-x;
-		touchscreen-swapped-x-y;
+	};
+
+	hym8563: rtc@51 {
+		compatible = "haoyu,hym8563";
+		reg = <0x51>;
+		#clock-cells = <0>;
+		clock-frequency = <32768>;
+		clock-output-names = "hym8563";
+		interrupt-parent = <&gpio0>;
+		interrupts = <RK_PB0 IRQ_TYPE_LEVEL_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&hym8563_int>;
+		status = "okay";
+		wakeup-source;
 	};
 };
 
@@ -975,16 +863,6 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c6m0_xfer>;
 	status = "okay";
-
-	accelerometer@18 {
-		compatible = "sensortek,stk8ba50";
-		reg = <0x18>;
-		interrupt-parent = <&gpio4>;
-		interrupts = <RK_PB7 IRQ_TYPE_EDGE_RISING>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&stk8baxx_irq>;
-		status = "okay";
-	};
 
 	lt6911: bridge@2b {
 		compatible = "lontium,lt6911uxc2";
@@ -1016,21 +894,22 @@
 		compatible = "hynetek,husb311";
 		reg = <0x4e>;
 		interrupt-parent = <&gpio0>;
+		/* 工厂为 GPIO0_B7; D7 引发中断风暴(typec-dp 报告实证), 2026-11-17 修正 */
 		interrupts = <RK_PB7 IRQ_TYPE_LEVEL_LOW>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&usbc0_int>;
 		vbus-supply = <&vbus5v0_typec>;
-		extcon = <&typec_extcon_bridge>;
+		/* extcon = <&typec_extcon_bridge>;  ← 已验证镜像无 extcon 桥引用 */
 		status = "okay";
 
 		connector {
 			compatible = "usb-c-connector";
 			label = "USB-C";
 			data-role = "dual";
-			/* The one-cable monitor supplies VBUS over USB-C PD. */
-			power-role = "sink";
+			power-role = "dual";
 			try-power-role = "sink";
 			pd-revision = /bits/ 8 <0x2 0x0 0x1 0x2>;
+			source-pdos = <PDO_FIXED(5000, 3000, PDO_FIXED_USB_COMM)>;
 			sink-pdos = <PDO_FIXED(5000, 1000, PDO_FIXED_USB_COMM)>;
 			op-sink-microwatt = <1000000>;
 
@@ -1119,42 +998,8 @@
 	status = "okay";
 };
 
-&{/} {
-	/*
-	 * Mainline 7.3 does not yet describe the RK3588 PDM0 controller.
-	 * The vendor block is register-compatible with the existing RV1126
-	 * path for the supported capture rates.
-	 */
-	pdm0: pdm@fe4b0000 {
-		compatible = "rockchip,rk3588-pdm", "rockchip,rv1126-pdm";
-		reg = <0x0 0xfe4b0000 0x0 0x1000>;
-		#sound-dai-cells = <0>;
-		clocks = <&cru MCLK_PDM0>, <&cru HCLK_PDM0>;
-		clock-names = "pdm_clk", "pdm_hclk";
-		dmas = <&dmac0 4>;
-		dma-names = "rx";
-		pinctrl-names = "default";
-		pinctrl-0 = <&pdm0m0_clk &pdm0m0_sdi0 &pdm0m0_sdi2>;
-		/* Capture PATH0/PATH1 from the two wired data lanes SDI0/SDI2. */
-		rockchip,path-map = <0 2 1 3>;
-		status = "okay";
-	};
-};
-
 &package_thermal {
 	polling-delay = <1000>;
-
-	cooling-maps {
-		map0 {
-			trip = <&package_fan0>;
-			cooling-device = <&fan THERMAL_NO_LIMIT 1>;
-		};
-
-		map1 {
-			trip = <&package_fan1>;
-			cooling-device = <&fan 2 THERMAL_NO_LIMIT>;
-		};
-	};
 
 	trips {
 		package_fan0: package-fan0 {
@@ -1167,6 +1012,18 @@
 			temperature = <65000>;
 			hysteresis = <2000>;
 			type = "active";
+		};
+	};
+
+	cooling-maps {
+		map0 {
+			trip = <&package_fan0>;
+			cooling-device = <&fan THERMAL_NO_LIMIT 1>;
+		};
+
+		map1 {
+			trip = <&package_fan1>;
+			cooling-device = <&fan 2 THERMAL_NO_LIMIT>;
 		};
 	};
 };
@@ -1198,13 +1055,8 @@
 				     "brcm,bcm43752-fmac",
 				     "brcm,bcm4329-fmac";
 			reg = <0x410000 0 0 0 0>;
-			clocks = <&hym8563>;
+			clocks = <&hym8563>; /* RTC CLKOUT 32.768kHz → AP6275P LPO (2026-11-18 实证) */
 			clock-names = "lpo";
-			interrupt-parent = <&gpio0>;
-			interrupts = <RK_PB2 IRQ_TYPE_LEVEL_HIGH>;
-			interrupt-names = "host-wake";
-			pinctrl-names = "default";
-			pinctrl-0 = <&wifi_host_wake_irq>;
 		};
 	};
 };
@@ -1234,66 +1086,9 @@
 };
 
 &pinctrl {
-
-	audio-amp {
-		headphone_amp_en: headphone-amp-en {
-			rockchip,pins = <4 RK_PB4 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-
-		speaker_amp_en: speaker-amp-en {
-			rockchip,pins = <4 RK_PB2 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-
-		headphone_det: headphone-det {
-			rockchip,pins = <4 RK_PB3 RK_FUNC_GPIO &pcfg_pull_up>;
-		};
-	};
-
-	backlight {
-		backlight_en: backlight-en {
-			rockchip,pins = <3 RK_PB4 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-	};
-
 	camera {
 		camera_pwen: camera-pwen {
 			rockchip,pins = <1 RK_PA2 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-	};
-
-	edp {
-		edp_backlight_en: edp-backlight-en {
-			rockchip,pins = <4 RK_PB6 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-	};
-
-	ethernet {
-		gmac0_phy_rst: gmac0-phy-rst {
-			rockchip,pins = <2 RK_PC4 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-	};
-
-	hdmi {
-		hdmi1_tx_on_h: hdmi1-tx-on-h {
-			rockchip,pins = <3 RK_PC5 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-	};
-
-	hdmirx {
-		hdmirx_hpd: hdmirx-hpd {
-			rockchip,pins = <4 RK_PC6 RK_FUNC_GPIO &pcfg_pull_up>;
-		};
-	};
-
-	hym8563 {
-		hym8563_int: hym8563-int {
-			rockchip,pins = <0 RK_PB0 RK_FUNC_GPIO &pcfg_pull_up>;
-		};
-	};
-
-	led {
-		led_power_on: led-power-on {
-			rockchip,pins = <3 RK_PD0 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 	};
 
@@ -1304,9 +1099,9 @@
 		};
 	};
 
-	lvds {
-		lvds_pwren_pin: lvds-pwren-pin {
-			rockchip,pins = <3 RK_PB6 RK_FUNC_GPIO &pcfg_pull_none>;
+	hdmirx {
+		hdmirx_hpd: hdmirx-hpd {
+			rockchip,pins = <4 RK_PC6 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 	};
 
@@ -1328,29 +1123,96 @@
 		};
 	};
 
+	watchdog {
+		sgm760b_power: sgm760b-power {
+			rockchip,pins = <0 RK_PD3 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	backlight {
+		backlight_en: backlight-en {
+			rockchip,pins = <3 RK_PB4 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	audio-amp {
+		headphone_amp_en: headphone-amp-en {
+			rockchip,pins = <4 RK_PB4 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		speaker_amp_en: speaker-amp-en {
+			rockchip,pins = <4 RK_PB2 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		headphone_det: headphone-det {
+			rockchip,pins = <4 RK_PB3 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	ethernet {
+		gmac0_phy_rst: gmac0-phy-rst {
+			rockchip,pins = <2 RK_PC4 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	edp {
+		edp_panel_en: edp-panel-en {
+			rockchip,pins = <1 RK_PD0 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+
+		edp_backlight_en: edp-backlight-en {
+			rockchip,pins = <4 RK_PB6 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	hdmi {
+		hdmi1_tx_on_h: hdmi1-tx-on-h {
+			rockchip,pins = <3 RK_PC5 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	hym8563 {
+		hym8563_int: hym8563-int {
+			rockchip,pins = <0 RK_PB0 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	lvds {
+		lvds_pwren_pin: lvds-pwren-pin {
+			rockchip,pins = <3 RK_PB6 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
 	sdmmc {
 		sdmmc_pwr: sdmmc-pwr {
 			rockchip,pins = <4 RK_PC3 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
-	stk8baxx {
-		stk8baxx_irq: stk8baxx-irq {
-			rockchip,pins = <4 RK_PB7 RK_FUNC_GPIO &pcfg_pull_up>;
-		};
-	};
 
 	touch {
-		touch_panel_en: touch-panel-en {
-			rockchip,pins = <1 RK_PD0 RK_FUNC_GPIO &pcfg_pull_up>;
-		};
-
-		vcc1v8_sys_en: vcc1v8-sys-en {
-			rockchip,pins = <0 RK_PC0 RK_FUNC_GPIO &pcfg_pull_up>;
-		};
-
 		gt9xx_gpios: gt9xx-gpios {
 			rockchip,pins = <1 RK_PD3 RK_FUNC_GPIO &pcfg_pull_none>,
 					<4 RK_PB0 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	wireless-bluetooth {
+		bt_reset_pin: bt-reset-pin {
+			rockchip,pins = <0 RK_PC6 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		bt_wake_pin: bt-wake-pin {
+			rockchip,pins = <0 RK_PC5 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		bt_wake_host_pin: bt-wake-host-pin {
+			rockchip,pins = <0 RK_PA0 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	wireless-wlan {
+		wifi_poweren_gpio: wifi-poweren-gpio {
+			rockchip,pins = <0 RK_PC4 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
 
@@ -1372,40 +1234,28 @@
 		};
 
 	};
+};
 
-	watchdog {
-		sgm760b_power: sgm760b-power {
-			rockchip,pins = <0 RK_PD3 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-	};
-
-	wireless-bluetooth {
-		bt_reset_pin: bt-reset-pin {
-			rockchip,pins = <0 RK_PC6 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-
-		bt_wake_pin: bt-wake-pin {
-			rockchip,pins = <0 RK_PC5 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
-
-		bt_wake_host_pin: bt-wake-host-pin {
-			rockchip,pins = <0 RK_PA0 RK_FUNC_GPIO &pcfg_pull_up>;
-		};
-	};
-
-	wireless-wlan {
-		wifi_host_wake_irq: wifi-host-wake-irq {
-			rockchip,pins = <0 RK_PB2 RK_FUNC_GPIO &pcfg_pull_up>;
-		};
-
-		wifi_poweren_gpio: wifi-poweren-gpio {
-			rockchip,pins = <0 RK_PC4 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
+&gpio0 {
+	vcc1v8_sys_hog: vcc1v8-sys-hog {
+		gpio-hog;
+		gpios = <RK_PC0 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "vcc1v8_sys_en";
 	};
 };
 
+/* I2C4 设备组总使能: 触摸/RTC 支路电源(或缓冲)使能, Android 由 vendor 驱动拉高,
+ * 主线无驱动持有导致两设备物理性不应答(2026-11-17 位摆 A/B 实验定案) */
+&gpio1 {
+	i2c4-dev-en-hog {
+		gpio-hog;
+		gpios = <RK_PD0 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "i2c4-dev-en";
+	};
+};
 
-/* LT9211 复位恒高: 芯片不接受上电后复位脉冲; 安卓恒高稳态 */
 &gpio3 {
 	lt9211-rst-hold-hog {
 		gpio-hog;
@@ -1734,7 +1584,6 @@
 };
 
 &u2phy0_otg {
-	phy-supply = <&vbus5v0_typec>;
 	status = "okay";
 };
 
@@ -1785,7 +1634,7 @@
 
 	bluetooth {
 		compatible = "brcm,bcm4345c5";
-		clocks = <&hym8563>;
+		clocks = <&wifi_lpo>;
 		clock-names = "lpo";
 		device-wakeup-gpios = <&gpio0 RK_PC5 GPIO_ACTIVE_HIGH>;
 		host-wakeup-gpios = <&gpio0 RK_PA0 GPIO_ACTIVE_HIGH>;
@@ -1913,13 +1762,14 @@
 	};
 };
 
+/* eDP0 VP2 出口: 已验证镜像无此端点 (随 eDP0 实验链整体禁用)
 &vp2 {
 	vp2_out_edp0: endpoint@ROCKCHIP_VOP2_EP_EDP0 {
 		reg = <ROCKCHIP_VOP2_EP_EDP0>;
 		remote-endpoint = <&edp0_in_vp2>;
-		status = "disabled";
 	};
 };
+*/
 
 &vp3 {
 	vp3_out_dsi1: endpoint@ROCKCHIP_VOP2_EP_MIPI1 {
