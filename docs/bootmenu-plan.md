@@ -127,20 +127,41 @@ irq GPIO0_A0,reset GPIO1_D3)。
 - 做法:TF 加 ESP(FAT32)放 `EFI/BOOT/BOOTAA64.EFI`(GRUB)+ grub.cfg;菜单=GRUB UI(高亮/上下键/倒计时,串口);系统内 `efibootmgr` 管理 BootOrder/BootNext(变量持久化于 ESP 的 `ubootefi.var`)= ylboot.ini 多启动项的标准工具版,**改菜单不用重刷 loader**
 - 回落:rootfs 分区保留 extlinux 作二级回落;loader 全程不动,失败最多回到现状
 
-**路线 B:EDK2 整固件替换(edk2-yourland 思路)** —— 默认不做,按需评估
-- 布局:edk2 全镜像写 eMMC LBA64(等价幽兰 NOR 整刷),与现有 `u-boot-rockchip.bin` 可 dd 互换;我们天然具备幽兰式的安全网(eMMC LBA64 + Maskrom,2026-11-18 已实测)
-- 依赖与工作量:
-  - 平台底座可复用 edk2-rockchi/RK3588 社区移植(RK3588+RK806 基础代码)+ 复用 rkbin TPL(DDR init)
-  - **大头 1:内屏点亮**——我们是 dual-link LVDS 竖屏,上游基本只有 HDMI 支持;幽兰是 eDP,面板驱动参考价值有限,大概率要自写 panel timing/VOP2 输出
-  - **大头 2:触摸 GT9110**——幽兰用 Goodix,其 EDK2 触摸驱动可参考移植
-  - 参考代码:`edk2-yourland2024.tar.gz`(https://gedu.oss-cn-beijing.aliyuncs.com/Products/YourLand/UEFI/)
-- 收益:内屏 UEFI Shell/Boot Manager、标准 UEFI 生态;代价:数天~周级移植 + 重新验证整条引导链
+**路线 B:EDK2 整固件替换(edk2-yourland 思路)** —— 2026-11-19 完成代码学习后分级
+> 源码:`/data/ruili/tmp/edk2-yl/src/edk2-yourland2024`(174MB,edk2-rockchip 社区底座 + GEDU 板级)
 
-### 4.3 结论
+- **镜像/部署(利好)**:布局 = GPT@0 + idblock@32KB(**= LBA64**)+ FIT@1MB + NV 变量@7.75M;
+  `ddsd.sh` 证明同一产物直接 dd 到 eMMC/SD LBA64 → **与我们现有 U-Boot loader 同槽位互换**,
+  变量存储(RkFvbDxe)按启动介质自适应。安全网(备份+Maskrom)已实测。
+- **SoC 层复用度 ~90%**:Vop2Dxe、USB 全套、PCIe/SATA、I2cDxe、FSPI/NOR、GpioLib、
+  RK806 库(双 PMIC 表抄 YourLand)、Dw8250 串口 1500000、BDS/UEFI Shell/Ext4、
+  idblock+FIT 构建管线;DDR/BL31(rkbin miniall)原样。
+- **新板移植形状**:7 件套(DSC / Modules.fdf.inc / RockchipPlatformLib(iomux+电压表+背光GPIO) /
+  AcpiTables / LogoDxe / non-osi DTB / configs),仿 YourLand 抄改,纯板级 1~2 人周。
+- **三块缺口(代码证据)**:
+  1. **LVDS 内屏 4~8 人周**:Vop2Dxe 仅寄存器宏认识 LVDS(含 DUAL_EN/LEFT_RIGHT/SWAP 位),
+     **无 connector 驱动/PHY/panel 框架**;时序硬编码 1080p 单模式
+     (LcdGraphicsOutputDxe.c `mDisplayModes[]`)。需从 downstream `rockchip-lvds.c`
+     移植 1~2k 行 + 竖屏 GOP + dual-link 相位调试;
+  2. **触摸 GT9110 2~4 人周**:全树无 goodix/触摸驱动;I2C 栈现成,
+     自写 ABSOLUTE_POINTER DXE;
+  3. **SARADC 按键 1~2 人周**:无 ADC 驱动,从零写 SARADC MMIO + SimpleTextIn 桥。
+- **分级**:
+  - **B-lite 骨架版(1~2 人周)**:串口 + UEFI Shell + 标准 Boot#### 管理 + 与 U-Boot dd 互换,
+    不碰显示;获得幽兰课程同款调试能力(dh/map/dblk/acpiview、热键 s 进 Shell);
+  - **B-full 完全体(骨架 + 8~12 人周)**:加 LVDS 内屏 + 触摸(+可选按键)。
+- 顺带:`uboot_uefi.img` = "U-Boot FIT 外壳 + BL33 槽装 eMMC 版 UEFI" 的预编译组合镜像,
+  `misc/repack.sh` 可把任意可执行塞进 BL33 槽——幽兰"双固件共存"的构建期机制。
 
-- 要"菜单体验+可管理性"→ **路线 A**,性价比最高,零 loader 风险
-- 要"内屏显示菜单/触摸"(图片体验的完全体)→ 无论 U-Boot vendor 树还是 EDK2,都绕不开"给这块冷门 LVDS 屏写显示驱动";幽兰思路真正值得学的是**双固件 dd 互换的安全网**,这点我们已具备
-- UEFI 不改变音量/电源键的结论(§3.1)
+### 4.3 结论(2026-11-19 修订)
+
+- 只要"菜单体验+可管理性" → **路线 A**(GRUB,零 loader 风险,半天);
+- 想实践幽兰 UEFI 思路 → **路线 B-lite**(骨架移植 1~2 人周,串口+Shell+启动项管理,
+  与现有 U-Boot 同槽位可 dd 互换,风险可控且是 B-full 的必经第一步);
+- "内屏触摸菜单完全体" → B-full,大头是这块 dual-link LVDS 屏(4~8 人周),建议分期,
+  先 B-lite 验证平台,显示单独立项;
+- UEFI 不改变音量/电源键结论(§3.1);幽兰思路真正值得学的是**双固件 dd 互换安全网**,
+  这点我们已具备(eMMC LBA64 + Maskrom,2026-11-18 实测)。
 
 ## 五、菜单项与 ylboot 对照表
 
