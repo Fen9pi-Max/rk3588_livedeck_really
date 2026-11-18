@@ -1,0 +1,8 @@
+config VIDEO_LT6911UXC2
+	tristate "Lontium LT6911UXC2 HDMI-to-MIPI CSI bridge"
+	depends on VIDEO_DEV && I2C
+	select MEDIA_CONTROLLER
+	select V4L2_FWNODE
+	select REGMAP_I2C
+	help
+	  Driver for the Lontium LT6911UXC2 HDMI-to-MIPI CSI bridge chip.
