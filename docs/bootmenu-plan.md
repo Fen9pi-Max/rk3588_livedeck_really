@@ -65,18 +65,47 @@ USB 下载模式)。**风险点**:值/行为需先在串口下手动验证一次
 3. **串口在线**才允许刷;刷后首次启动逐菜单项人工验证;
 4. 回滚:LBA64 备份 dd 回 / Maskrom `rkdeveloptool wl 64`。
 
-## 三、阶段 2:HDMI 屏显菜单(风险与工作量都更高,按需启动)
+## 三、输入与显示硬件可行性(2026-11-18 查证,证据:运行时 DTB + Armbian v2026.07 树源码)
 
-依赖链:
-```
-dm_video(vidconsole) → RK3588 HDMI TX(drivers/video/dw_hdmi_qp + hdptx PHY)
-→ 字体/ framebuffer → menu 渲染到 vidconsole
-输入:USB 键盘(CONFIG_USB_KEYBOARD + USB host 初始化);IR 遥控器主线无通用驱动,不可用
-```
-不确定性:主线 U-Boot 对 RK3588 HDMI 输出的成熟度(2026.07 时点 rock5b 是否开箱亮屏
-未验证);若不亮,需移植/调试 hdptx PHY 初始化,工作量不可控。
-建议:阶段 1 稳定运行、确有屏显刚需再启动;先在串口+HDMI 监视器上做一次现状摸底
-(现 loader 开 CONFIG_VIDEO 没有、亮不亮)再定。
+### 3.1 机器按键的真实接线
+
+| 按键 | 接线 | 内核 DT 证据 | U-Boot 主线可行性 |
+|---|---|---|---|
+| 音量+ / 音量- | **SARADC 分压**(saradc@fe720000 ch1) | `adc-keys` 节点:vol-up 17mV、vol-down 417mV、back 1.23V、menu;keyup 1.8V(阈值单位 µV) | ✅ **`drivers/button/button-adc.c` 的绑定 compatible 恰好就是 `"adc-keys"`**,SARADC 驱动(`drivers/adc/rockchip-saradc.c`)在主线。开 `CONFIG_BUTTON_ADC + CONFIG_ADC + CONFIG_CMD_BUTTON`,U-Boot DT 抄入 adc-keys 节点 → `button status "volume up"` 直接轮询 |
+| 播放/暂停 | SARADC ch3(`play-pause-keys`) | 同上 | ✅ 同上 |
+| **电源键** | **RK806 PMIC PWRON 引脚**(非 SoC GPIO) | 原厂 DTS `rk806 → pwrkey { status okay }`;运行时 DT 无 SoC 侧节点 | ⚠️ 主线只有 `button-qcom-pmic.c`,无 RK806 版。需自写 `button-rk806.c`(参照 qcom 版,~百行,经既有 rk8xx PMIC 驱动读 PWRON 状态/INT 寄存器,寄存器位查 RK806 手册)。**替代:放弃电源键,"音量+ 短按=确认"** |
+
+注意:native `bootmenu`(cmd/bootmenu.c)只消费 stdin(串口/USB 键盘),button 不进输入流。
+按键驱动菜单需自写精简菜单命令(如 `bootmenu_btn`:轮询 button uclass + 渲染文本菜单到串口,
+~150 行,即 ylboot `osl_show_bootmenu` 的精简版);或菜单仍用 native bootmenu(串口操作),
+按键仅做"呼出/确认"辅助。
+
+### 3.2 内屏与触摸(结论:主线树不可行)
+
+内屏实况(运行时 DTB):`panel-lvds`(vesa-24,**dual-link**,port0=odd-pixels)、PWM 背光 +
+enable GPIO3_B6、270° 竖屏(1080×1920);触摸 = **Goodix GT9110**(i2c@feac0000 @0x14,
+irq GPIO0_A0,reset GPIO1_D3)。
+
+主线 U-Boot(Armbian v2026.07 树)查证:`drivers/video/rockchip/` 只有 rk3288/rk3328/rk3399
+的 VOP/HDMI/MIPI/LVDS(rk_lvds.c 是 rk3288 时代),**全树无任何 RK3588 显示驱动——HDMI 也没有**
+(修正本文早期版本"HDMI 成熟度未知"的说法)。因此:
+
+- 内屏菜单:❌ 主线树无 RK3588 VOP2 → 无从点亮(LVDS 更无);
+- 触摸:❌ 无 GT9110 输入驱动,且依赖屏显存在才有意义;
+- HDMI 菜单:❌ 同因(无 dw-hdmi-qp/hdptx)。
+
+**屏显(内屏或 HDMI)的唯一现实路线 = 换底盘**:Rockchip vendor SDK 树(ylboot 即此路线,
+其产品化代码已含 VOP2+LVDS+Goodix 触摸+电源键手势整套)。代价:放弃主线构建链、重做
+板级 DTS 移植、重新验证引导链(数天量级)。若坚持主线树,等价于自行 port VOP2 最小初始化,
+风险高于收益,**不建议**。
+
+### 3.3 修订后的阶段划分
+
+| 阶段 | 内容 | 输入 | 显示 | 状态 |
+|---|---|---|---|---|
+| 1a | native bootmenu 五项菜单 | 串口 | 串口 | 设计完成,未实施 |
+| 1b | `bootmenu_btn` 精简菜单命令 | **音量± 移动 + 音量+ 确认**(电源键可选,需 button-rk806.c) | 串口 | 设计完成,未实施 |
+| 2 | 内屏/HDMI 屏显 + 触摸 | 触摸/按键 | 内屏 | **需换 vendor SDK 树,大工程,默认不做** |
 
 ## 四、菜单项与 ylboot 对照表
 
