@@ -545,17 +545,40 @@ static int lt6911uxc2_probe(struct i2c_client *client)
 	if (ret)
 		return ret;
 
-	/* Reset the chip */
-	if (priv->reset_gpio) {
-		gpiod_set_value_cansleep(priv->reset_gpio, 1);
-		msleep(20);
-		gpiod_set_value_cansleep(priv->reset_gpio, 0);
-		msleep(50);
-	}
-
+	/* Enable I2C and check chip ID first (vendor sequence) */
 	ret = lt6911uxc2_check_chip_id(priv);
 	if (ret)
 		return ret;
+
+	/* Full GPIO reset per vendor driver:
+	 * LOW(2ms) -> HIGH(120ms) -> LOW(300ms) */
+	if (priv->reset_gpio) {
+		gpiod_set_value_cansleep(priv->reset_gpio, 0);
+		usleep_range(2000, 2100);
+		gpiod_set_value_cansleep(priv->reset_gpio, 1);
+		usleep_range(120000, 121000);
+		gpiod_set_value_cansleep(priv->reset_gpio, 0);
+		usleep_range(300000, 310000);
+	}
+
+	/* Re-enable I2C after reset (reset clears I2C enable bit) */
+	{
+		u8 buf[3] = { 0x80, 0xEE, 0x01 };
+		struct i2c_msg msg = {
+			.addr = priv->client->addr,
+			.flags = 0,
+			.len = 3,
+			.buf = buf,
+		};
+		int i;
+		for (i = 0; i < 5; i++) {
+			ret = i2c_transfer(priv->client->adapter, &msg, 1);
+			if (ret == 1)
+				break;
+			msleep(50);
+		}
+	}
+	msleep(50);
 
 	mutex_init(&priv->lock);
 
