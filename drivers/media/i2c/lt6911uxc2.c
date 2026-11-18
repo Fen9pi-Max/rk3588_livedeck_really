@@ -16,7 +16,6 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/of_graph.h>
-#include <linux/regmap.h>
 #include <linux/workqueue.h>
 #include <linux/v4l2-dv-timings.h>
 #include <media/v4l2-ctrls.h>
@@ -95,22 +94,42 @@ static inline struct lt6911uxc2 *to_lt6911uxc2(struct v4l2_subdev *sd)
 	return container_of(sd, struct lt6911uxc2, sd);
 }
 
-/* --- I2C register access (16-bit registers, 8-bit values) --- */
+/* --- I2C register access: LT6911UXC2 bank-switching protocol ---
+ * 16-bit register addresses are split: high byte = bank, low byte = offset.
+ * Bank is selected by writing [0xFF, bank] first. */
 
 static int lt6911uxc2_read(struct lt6911uxc2 *priv, u16 reg, u8 *val)
 {
-	unsigned int v;
+	struct i2c_client *client = priv->client;
+	u8 bank = reg >> 8;
+	u8 offset = reg & 0xFF;
+	u8 bank_buf[2] = { 0xFF, bank };
+	struct i2c_msg msgs[3] = {
+		{ .addr = client->addr, .flags = 0, .len = 2, .buf = bank_buf },
+		{ .addr = client->addr, .flags = 0, .len = 1, .buf = &offset },
+		{ .addr = client->addr, .flags = I2C_M_RD, .len = 1, .buf = val },
+	};
 	int ret;
 
-	ret = regmap_read(priv->regmap, reg, &v);
-	if (!ret)
-		*val = (u8)v;
-	return ret;
+	ret = i2c_transfer(client->adapter, msgs, 3);
+	return (ret == 3) ? 0 : -EIO;
 }
 
 static int lt6911uxc2_write(struct lt6911uxc2 *priv, u16 reg, u8 val)
 {
-	return regmap_write(priv->regmap, reg, val);
+	struct i2c_client *client = priv->client;
+	u8 bank = reg >> 8;
+	u8 offset = reg & 0xFF;
+	u8 bank_buf[2] = { 0xFF, bank };
+	u8 data[2] = { offset, val };
+	struct i2c_msg msgs[2] = {
+		{ .addr = client->addr, .flags = 0, .len = 2, .buf = bank_buf },
+		{ .addr = client->addr, .flags = 0, .len = 2, .buf = data },
+	};
+	int ret;
+
+	ret = i2c_transfer(client->adapter, msgs, 2);
+	return (ret == 2) ? 0 : -EIO;
 }
 
 static int lt6911uxc2_read16(struct lt6911uxc2 *priv, u16 reg_h, u16 reg_l,
@@ -136,30 +155,30 @@ static int lt6911uxc2_check_chip_id(struct lt6911uxc2 *priv)
 	u16 chip_id;
 	int ret;
 
-	/* Enable I2C access via raw i2c (regmap may fail before enable).
-	 * The LT6911UXC2 may need multiple attempts with delays. */
+	/* Enable I2C using bank-switching protocol (vendor method).
+	 * Bank 0x80, register 0xEE, value 0x01 */
 	{
-		u8 buf[3] = { 0x80, 0xEE, 0x01 };
-		struct i2c_msg msg = {
-			.addr = priv->client->addr,
-			.flags = 0,
-			.len = 3,
-			.buf = buf,
+		u8 bank_buf[2] = { 0xFF, 0x80 };
+		u8 data[2] = { 0xEE, 0x01 };
+		struct i2c_msg msgs[2] = {
+			{ .addr = priv->client->addr, .flags = 0,
+			  .len = 2, .buf = bank_buf },
+			{ .addr = priv->client->addr, .flags = 0,
+			  .len = 2, .buf = data },
 		};
 		int i;
 		for (i = 0; i < 5; i++) {
-			msleep(100); /* let chip stabilize after reset */
-			ret = i2c_transfer(priv->client->adapter, &msg, 1);
-			if (ret == 1) {
+			msleep(100);
+			ret = i2c_transfer(priv->client->adapter, msgs, 2);
+			if (ret == 2) {
 				ret = 0;
 				break;
 			}
-			dev_dbg(&priv->client->dev,
-				"I2C enable attempt %d failed: %d\n", i + 1, ret);
 		}
 		if (ret != 0) {
-			dev_err(&priv->client->dev, "failed to enable I2C after %d attempts: %d\n", i, ret);
-			return ret;
+			dev_err(&priv->client->dev,
+				"I2C enable failed after %d attempts\n", i);
+			return -EIO;
 		}
 	}
 	msleep(20);
@@ -512,12 +531,6 @@ static int lt6911uxc2_parse_dt(struct lt6911uxc2 *priv)
 
 /* --- Regmap config (16-bit register addresses, 8-bit values) --- */
 
-static const struct regmap_config lt6911uxc2_regmap_config = {
-	.reg_bits = 16,
-	.val_bits = 8,
-	.max_register = 0xbfff,
-};
-
 /* --- Probe / Remove --- */
 
 static int lt6911uxc2_probe(struct i2c_client *client)
@@ -534,12 +547,6 @@ static int lt6911uxc2_probe(struct i2c_client *client)
 	priv->mbus_code = MEDIA_BUS_FMT_RGB888_1X24;
 	struct v4l2_dv_timings def_tim = V4L2_DV_BT_CEA_640X480P59_94;
 	priv->timings = def_tim;
-
-	priv->regmap = devm_regmap_init_i2c(client, &lt6911uxc2_regmap_config);
-	if (IS_ERR(priv->regmap)) {
-		dev_err(dev, "failed to init regmap\n");
-		return PTR_ERR(priv->regmap);
-	}
 
 	ret = lt6911uxc2_parse_dt(priv);
 	if (ret)
