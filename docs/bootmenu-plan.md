@@ -107,12 +107,47 @@ irq GPIO0_A0,reset GPIO1_D3)。
 | 1b | `bootmenu_btn` 精简菜单命令 | **音量± 移动 + 音量+ 确认**(电源键可选,需 button-rk806.c) | 串口 | 设计完成,未实施 |
 | 2 | 内屏/HDMI 屏显 + 触摸 | 触摸/按键 | 内屏 | **需换 vendor SDK 树,大工程,默认不做** |
 
-## 四、菜单项与 ylboot 对照表
+## 四、"UEFI 思路"评估(2026-11-18 学习 nanocode.cn/wiki 幽兰 wiki 后修订)
+
+### 4.1 幽兰 UEFI 的真实形态(易混淆点先澄清)
+
+幽兰设备上 **U-Boot 与 UEFI 是两套可整体互换的固件**,不是"U-Boot 里跑 UEFI":
+
+| 固件 | 内容 | 角色 |
+|---|---|---|
+| ylboot(U-Boot, next-dev) | 自定义 `bootyl`/osl 菜单(开机照片里的 Boot Menu 就是它)、ylboot.ini 引导、NDB 调试 | 日常主力 |
+| edk2-yourland(EDK2 UEFI) | 《UEFI以战说法》课程固件:`RK3588_NOR_FLASH_YL.img` **整体 dd 到 NOR**(/dev/mtdblock0),含内屏控制台、UEFI Shell(dh/map/dblk/acpiview)、串口交互、NDB 调试 | 学习/实验 |
+
+两者靠 **NOR 整镜像 dd 互换**(UEFI恢复到U-Boot / 使用刷机工具更新UEFI 两篇 wiki);老机型"双剑1"只支持 UEFI,双剑2 两者皆可。注意:《把u-boot跑成一个应用》讲的是 U-Boot **sandbox 模式**(Linux 用户态调试),与 UEFI 无关。
+
+### 4.2 对 TV2340R 的两条 UEFI 路线
+
+**路线 A:U-Boot EFI_LOADER + GRUB(UEFI 引导方式,不动固件)** —— 推荐
+- 现状:线上 loader 已开 `CONFIG_EFI_LOADER=y` + `EFI_VARIABLE_FILE_STORE=y`,今晚 TF 启动日志的 `efi_mgr` 扫描证明运行时已激活,只差 TF 卡上没有 EFI 程序
+- 做法:TF 加 ESP(FAT32)放 `EFI/BOOT/BOOTAA64.EFI`(GRUB)+ grub.cfg;菜单=GRUB UI(高亮/上下键/倒计时,串口);系统内 `efibootmgr` 管理 BootOrder/BootNext(变量持久化于 ESP 的 `ubootefi.var`)= ylboot.ini 多启动项的标准工具版,**改菜单不用重刷 loader**
+- 回落:rootfs 分区保留 extlinux 作二级回落;loader 全程不动,失败最多回到现状
+
+**路线 B:EDK2 整固件替换(edk2-yourland 思路)** —— 默认不做,按需评估
+- 布局:edk2 全镜像写 eMMC LBA64(等价幽兰 NOR 整刷),与现有 `u-boot-rockchip.bin` 可 dd 互换;我们天然具备幽兰式的安全网(eMMC LBA64 + Maskrom,2026-11-18 已实测)
+- 依赖与工作量:
+  - 平台底座可复用 edk2-rockchi/RK3588 社区移植(RK3588+RK806 基础代码)+ 复用 rkbin TPL(DDR init)
+  - **大头 1:内屏点亮**——我们是 dual-link LVDS 竖屏,上游基本只有 HDMI 支持;幽兰是 eDP,面板驱动参考价值有限,大概率要自写 panel timing/VOP2 输出
+  - **大头 2:触摸 GT9110**——幽兰用 Goodix,其 EDK2 触摸驱动可参考移植
+  - 参考代码:`edk2-yourland2024.tar.gz`(https://gedu.oss-cn-beijing.aliyuncs.com/Products/YourLand/UEFI/)
+- 收益:内屏 UEFI Shell/Boot Manager、标准 UEFI 生态;代价:数天~周级移植 + 重新验证整条引导链
+
+### 4.3 结论
+
+- 要"菜单体验+可管理性"→ **路线 A**,性价比最高,零 loader 风险
+- 要"内屏显示菜单/触摸"(图片体验的完全体)→ 无论 U-Boot vendor 树还是 EDK2,都绕不开"给这块冷门 LVDS 屏写显示驱动";幽兰思路真正值得学的是**双固件 dd 互换的安全网**,这点我们已具备
+- UEFI 不改变音量/电源键的结论(§3.1)
+
+## 五、菜单项与 ylboot 对照表
 
 | 幽兰菜单项 | 本机等价 | 说明 |
 |---|---|---|
-| u26k6126/u23k6126… on nvme 0:1 | (无 NVMe;可加 USB 项) | 多内核段 = extlinux 多标签 |
+| u26k6126/u23k6126… on nvme 0:1 | (无 NVMe;可加 USB 项) | 多内核段 = extlinux 多标签 / GRUB 菜单项 |
 | krnl6/krnl5 on mmc 0:2 | Armbian (TF) / Armbian (eMMC) | mmc0=eMMC;幽兰的 mmc0:2 是 eMMC 工厂分区 |
-| MaskROM | Reboot to MaskROM | 寄存器 magic + reset,见上 |
-| U-Boot console | U-Boot console | 空命令项=直接落 shell |
+| MaskROM | Reboot to MaskROM | 寄存器 magic + reset,见 §2 |
+| U-Boot console | U-Boot console | 空命令项=直接落 shell;GRUB 下用 `exit` 返回 U-Boot |
 | 电源键双击呼出菜单 | (无 RK8xx 电源键长按逻辑) | 改为 bootdelay 内按任意键/固定每次显示 |
