@@ -172,3 +172,23 @@ irq GPIO0_A0,reset GPIO1_D3)。
 | MaskROM | Reboot to MaskROM | 寄存器 magic + reset,见 §2 |
 | U-Boot console | U-Boot console | 空命令项=直接落 shell;GRUB 下用 `exit` 返回 U-Boot |
 | 电源键双击呼出菜单 | (无 RK8xx 电源键长按逻辑) | 改为 bootdelay 内按任意键/固定每次显示 |
+
+## 六、Android + Linux 双系统兼容性(2026-11-20 评估)
+
+结论:**能做到,幽兰自己就是活例**(菜单里 krnl5/krnl6 on mmc 0:2 = eMMC 原厂系统,
+u26xxx on nvme 0:1 = 自装 Linux,一张菜单双系统切换)。三条路径:
+
+| 路径 | Android 怎么引导 | 工作量/风险 |
+|---|---|---|
+| **现主线 U-Boot(现 loader)** | 实测 `CONFIG_ANDROID_BOOT_IMAGE/BOOTMETH_ANDROID/ANDROID_AB 全部未开` → 需重开配置重编 + 手拼 cmdline/dtb(RK Android 12 + 5.10 非 GKI:boot_a + dtbo + misc 传参) | 中;OTA 后 bootimg/dtbo 变化易碎 |
+| **vendor U-Boot 树(幽兰路线)** | Android/AVB/misc/A-B 全套原生保留,TF Linux 走 osl 式菜单 | 中高(换底座重移植),但这是幽兰已验证形态 |
+| **EDK2 路线(B-lite/B-full)** | 树内自带 `AndroidBootImg` 协议 + "Android Boot"/"Android Fastboot" 平台启动项(RK3588Dxe.c,`PcdAndroidBootDevicePath`)+ RkAtagsLib 传参 | 框架内建,随 B-lite 一起获得 |
+
+**前提与风险:**
+1. **当前 eMMC 已刷成 Armbian 单分区** —— Android 需从 `RK3588-TV2340R-Android12-Native-v1.1`
+   整刷恢复(Maskrom + rkdeveloptool 全流程已实测可用),恢复后 Armbian 只住 TF;
+2. **AVB**:原厂可 Magisk root → 校验宽松,第三方 loader 引导风险低(待实机验证);
+3. Android A/B slot 的 boot success 标记由 Android 自身 bootctrl 维护,第三方 loader 只管
+   `androidboot.slot_suffix=_a/_b` 传参即可,不做槽位切换也不会砖;
+4. 菜单层面:GRUB(U-A)/ osl(vendor)/ EDK2 Boot Manager(B)都能把"Android(eMMC)"
+   做成一个菜单项,与 Linux 项并列。
