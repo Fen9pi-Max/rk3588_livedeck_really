@@ -192,3 +192,46 @@ u26xxx on nvme 0:1 = 自装 Linux,一张菜单双系统切换)。三条路径:
    `androidboot.slot_suffix=_a/_b` 传参即可,不做槽位切换也不会砖;
 4. 菜单层面:GRUB(U-A)/ osl(vendor)/ EDK2 Boot Manager(B)都能把"Android(eMMC)"
    做成一个菜单项,与 Linux 项并列。
+
+## 七、B-lite 双系统深度论证与零重复刷机序列(2026-11-20)
+
+### 7.1 "一次移植拿到三样"的证据级修正
+
+| 能力 | 状态 | 证据 |
+|---|---|---|
+| UEFI Shell | ✅ 确定 | `FvMainModules.fdf.inc` 内建所有板 |
+| Linux 双系统 | ✅ 确定 | 标准 EFI 扫描 ESP/GRUB;现 TF Armbian 直接可用 |
+| 双固件互换 | ✅ 确定 | 与 U-Boot 同槽 LBA64,dd 互换 |
+| Android Boot 菜单项 | ⚠️ 框架在,需四件小活 | App 已编入(FvMain:211);①`PcdAndroidBootDevicePath` 改指 boot_a@LBA0x13000(默认值是占位) ②RK boot.img 主 DTB 在 `second`(resource 容器)内,EmbeddedPkg AndroidBootImgLib 不解析 → 需小改提取或独立加载 ③`AppendArgs` 补 androidboot cmdline(真值从恢复后的 Android `cat /proc/cmdline` 抄) ④AVB 已关(vbmeta flags=2,实测) |
+| Android Fastboot | ⚠️ 菜单项在,App **未编入** | 需在板级 Modules.fdf.inc 加 INF(一行) |
+
+### 7.2 两个硬前提(已查实)
+
+1. **Android 完整可恢复**:`box-backup-20261101/`(21G,双端 SHA 校验)含 GPT 头尾 + 全部分区
+   (security@8192 / uboot_a@16384,b@24576 / trust@32768,40960 / misc@49152 / dtbo@57344,65536 /
+   vbmeta@73728,75776 / boot_a@77824(96M),b@274432 / backup / cache / metadata / baseparameter /
+   super(4G))+ loader_gap(原厂 loader LBA34-8191)+ data.tar.gz。v1.1 目录只是"改版增量包"
+   (仅 boot_a+super),不能独立恢复。
+2. **EDK2 8MB 镜像与 Android GPT 精确冲突**:EDK2 跨 LBA 64-16447 → **完整覆盖 security 分区
+   (8192-16383)+ uboot_a 头 32KB(16384-16447)**。EDK2 自身运行不受影响;Android 的 DRM
+   (Widevine 等)若依赖 security 分区会降级(直播盒基本无感);**回滚 vendor 链前必须先写回
+   security.img + uboot_a.img**(备份都在)。
+
+### 7.3 零重复刷机序列(2 个刷机窗口)
+
+**窗口 0(零刷机,本机)**:B-lite 移植 + Android Boot 四件小活;
+离线解包备份里的 `boot_a.img`(magiskboot)确认 DTB 在 second 的具体格式,把 AndroidBootImgLib
+的解析风险提前清掉;产物 = tv2340r EDK2 镜像 + 回滚物料清单。
+
+**窗口 1(刷机 A:恢复 Android)**:maskrom 按备份 GPT 逐分区写回(脚本化,复用 v1.1 的
+一键刷机框架)→ 验证 Android 正常 → **在运行中的 Android 里取三样**:
+`cat /proc/cmdline`(cmdline 真值)、DRM/功能自检、现状二次备份。
+用 cmdline 真值**在本机补编最终版 EDK2**(此环节纯本机,不占刷机窗口)。
+
+**窗口 2(刷机 B:上 EDK2)**:Android(adb root)或 maskrom 下 dd EDK2@LBA64 →
+验证清单逐项:UEFI Shell → TF Linux → Android Boot → Fastboot。
+任一步失败 → maskrom 写回 loader_gap + security + uboot_a(=回到窗口 1 纯 Android)
+或 Armbian loader(=回到 TF/Linux 现状),**一步到位,无未知路径**。
+
+刷机总数 = 2;所有信息采集(bootimg 结构、cmdline、GPT)前置到窗口 0/1,
+窗口 2 不存在"刷了才发现缺信息"的返工路径。
