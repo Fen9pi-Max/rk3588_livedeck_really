@@ -250,3 +250,21 @@ u26xxx on nvme 0:1 = 自装 Linux,一张菜单双系统切换)。三条路径:
   `usb start && usb tree` 枚举;回滚 = 现有 Armbian loader 备份。
 - 注意:U-Boot 阶段先按 USB2 高速验收(USB3 combo PHY 初始化复杂,内核起来后全速);
   若要"USB 优先于 TF",调 env `boot_targets` 把 usb 提前即可,无需重编。
+
+## 九、攒批 loader 实施完成(2026-11-20,构建待刷)
+
+需求:启动顺序 **USB → TF → eMMC**,音量加减键调整菜单。
+
+产物:`…/u-boot-really/v2026.07/u-boot-rockchip-menu.bin`(md5 4202c6f2…)
+
+| 改动 | 文件 | 说明 |
+|---|---|---|
+| BOOT_TARGETS 默认序 | `include/configs/rockchip-common.h:17` | `usb0 mmc1 mmc0 …`(注:该宏的历史默认 env 并未进二进制,TF 优先一直来自 bootstd 内建序;顺序实际由菜单保证,双保险) |
+| SARADC + 音量键 | `rk3588-really.dts` | `&saradc okay` + `adc-keys`(ch1,vol-up 17mV / vol-down 417mV,与内核 DT 同参);驱动 `SARADC_ROCKCHIP` + `BUTTON_ADC` |
+| **音量键菜单命令** | `cmd/really_bootmenu.c`(新) | `really_bootmenu`:vol- 下移 / vol+ 上移 / **vol+ 长按 1s 确认**;串口方向键+回车、ESC 控制台;**超时 8s 自动按 USB→TF→eMMC 启动**;选择后 `env_set boot_targets` + `bootflow scan -lb`(bootstd 读该 env 定序,bootstd-uclass.c:116 实证) |
+| BOOTCOMMAND | defconfig | `really_bootmenu`(原 `bootflow scan -lb`) |
+
+菜单项:USB 链(usb>tf>emmc)/ TF 链 / eMMC 链 / U-Boot console。
+验证:DTB(saradc okay+adc-keys 阈值正确)、菜单字符串/命令编入、FIT 结构 atf-1/2/3 与线上链一致、BL31 v1.48。
+
+**刷入前串口验证清单**:`button list`(应列出 volume up/down 及状态)、`really_bootmenu`(菜单渲染+按键)、`usb start && usb tree`(USB 枚举)、最后 `boot`。回滚:现有 Armbian loader 备份 / Maskrom。
