@@ -268,3 +268,17 @@ u26xxx on nvme 0:1 = 自装 Linux,一张菜单双系统切换)。三条路径:
 验证:DTB(saradc okay+adc-keys 阈值正确)、菜单字符串/命令编入、FIT 结构 atf-1/2/3 与线上链一致、BL31 v1.48。
 
 **刷入前串口验证清单**:`button list`(应列出 volume up/down 及状态)、`really_bootmenu`(菜单渲染+按键)、`usb start && usb tree`(USB 枚举)、最后 `boot`。回滚:现有 Armbian loader 备份 / Maskrom。
+
+## 十、攒批 loader 上机验证(2026-11-20 完成)
+
+刷入产物 md5 `3d32d8ad`(v2,含 vref 修复)。实测结果:
+
+| 项 | 结果 |
+|---|---|
+| 新 loader 启动链 | ✅ SPL→BL31(v1.48)→U-Boot 2026.07(Nov 20 构建)全部正常,变砖教训的构建纪律(BL31 v1.48/FIT atf-1/2/3)生效 |
+| 菜单 | ✅ `**** Really Boot Menu ****` 渲染、8s 倒计时、超时按 USB→TF→eMMC 链启动(TF 引导成功);串口 `q` 键可退出到控制台 |
+| 音量键 | ✅ `button list` 枚举 `volume up/down`;**v1 的 `can't get vref-supply` 已修**:&saradc 补 `vref-supply = <&avcc_1v8_s0>`(fixed regulator 1.8V,内核同值)。实体按压捕捉未做(30s 窗口无按键),枚举链已验证 |
+| USB | ✅ `usb@fc400000`(USB3 主机口)枚举成功(0 存储设备=未插盘);⚠️ `usb@fc8c0000`(OHCI)报 clocks -19,次要 USB2 口未通,不影响 USB3 启动,遗留 |
+| 刷入流程 | ✅ 备份(loader-pre-menu-20261120.img, md5 5cec58=Armbian loader)→ dd seek=64 → 回读一致 ×2 轮 |
+
+菜单在 autoboot(bootdelay=1)后接管,BOOTCOMMAND=really_bootmenu。
