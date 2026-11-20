@@ -338,3 +338,9 @@ libLLVM/内核模块 .ko+modules.dep 元数据等)——拷贝路径静默位翻
 - rsync 克隆运行中系统 → 克隆后必须 `dpkg -V` 体检(本次若只修 NM 会留下 python/chromium 雷);
 - "PHY 慢"的表象 = NM 死 → 无人拉起接口 → phylink 不挂 PHY → 无载波;**接口 DOWN≠硬件问题**;
 - 排障时先 `systemctl status` 全绿再谈驱动。
+
+**修复结果验收**(2026-11-21):重装 15 包后连带发现 apt 源内核包已换代(7.3.4→7.3.3),
+重装触发的 postrm 拆掉了在跑的 7.3.4 模块树——从 TF 拷回原版模块树 + `depmod` 重建解决
+(modules.order ✓ / modprobe ✓ / vmlinuz-7.3.4-edge 已补回 USB /boot)。
+最终验收:NM active、python/chromium/全部受害包 dpkg -V 全净、
+**冷启动 → SSH+DHCP 上线 72 秒**(修复前:数分钟至永远上不来)。
