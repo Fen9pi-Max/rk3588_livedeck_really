@@ -317,3 +317,24 @@ PHY 延迟绑定(~221s)致多轮"无网",靠串口 sudo 补静态 IP 续命;一�
 **已应用到**:USB 硬盘系统(really-usb)+ TF 系统(mmcblk1p1 挂载拷贝,eMMC 系统未动)。
 若未来需要 HDMI 出声:删该配置文件重启 wireplumber 即恢复(风险自负)。
 备选方案(未用):拉黑 snd_soc_hdmi_codec / 内核升级含上游修复时移除此 workaround。
+
+## 十三、"网络慢热"根治(2026-11-20)
+
+**症状**:多次冷启动后盒子长时间无网络(ping 不通/SSH 拒绝),偶发自愈;曾误判为
+PHY 延迟绑定(221s 那次只是 NM 起来晚了)。
+
+**侦探链**(每步都有实证):
+1. `ip link set end0 up` → 13 秒内 `PHY [YT8531] attach + Link is Up 1Gbps`——**PHY 从来没坏**
+   (phylink 惰性挂载:接口 UP 才触发 MDIO 挂 PHY;MOTORCOMM_PHY=y 内建,排除模块慢加载);
+2. 真凶:**NetworkManager 开机 SEGV**,`dpkg -V` 实锤 `/usr/sbin/NetworkManager` md5 不符
+   ——rsync 克隆时二进制被抓坏(USB 侧 526952cd…,TF 健康副本 4b27c643…);
+3. 从 TF 挂载拷回健康二进制 → NM `active`、`end0 connected`、DHCP 正常拿 .248。
+
+**连带体检**(dpkg -V 全量):另发现 18 个损坏文件(python3.14/dhcpcd/chromium/libxml2/
+libLLVM/内核模块 .ko+modules.dep 元数据等)——拷贝路径静默位翻转,HDD 慢速写(2MB/s)
+可疑。处置:15 个受害包 `apt --reinstall` + `depmod` 重建(修复中,结果见下)。
+
+**教训**:
+- rsync 克隆运行中系统 → 克隆后必须 `dpkg -V` 体检(本次若只修 NM 会留下 python/chromium 雷);
+- "PHY 慢"的表象 = NM 死 → 无人拉起接口 → phylink 不挂 PHY → 无载波;**接口 DOWN≠硬件问题**;
+- 排障时先 `systemctl status` 全绿再谈驱动。
