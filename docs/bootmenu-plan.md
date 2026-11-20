@@ -344,3 +344,26 @@ libLLVM/内核模块 .ko+modules.dep 元数据等)——拷贝路径静默位翻
 (modules.order ✓ / modprobe ✓ / vmlinuz-7.3.4-edge 已补回 USB /boot)。
 最终验收:NM active、python/chromium/全部受害包 dpkg -V 全净、
 **冷启动 → SSH+DHCP 上线 72 秒**(修复前:数分钟至永远上不来)。
+
+## 十四、U-Boot USB 枚举攻坚(2026-11-21 深夜,阶段战报)
+
+**已排除(每项带实证)**:软件栈 ✓(根集线器枚举正常)/ EHCI clocks ✓(delete-property 修复,
+五总线全活)/ PHY GRF 序列 ✓(移植内核 rk3588_usb2phy_tuning 全套:SIDDQ bit13 清、
+UTMI suspend_cfg、DC level、pre-emph、iddig、复位;寄存器回读与 Linux 逐位一致——
+fc400000 的 u2phy1 两系统 GRF 完全相同 0xd10 仍不枚举)/ GUSB2PHYCFG ✓(SUSPHY/ENBLSLPM/
+FREECLK 全清,edk2 同款)/ VBUS ✓(内核 DT 无 vbus 门控,硬供电)/ 时序 ✓(usb stop/start
+热重扫同样零)。xHCI PORTSC 活体读数:PP=1、PLS=RxDetect(在等对端端接)→ 电气层未见设备。
+
+**过程发现(重要)**:U-Boot xhci-dwc3.c 的 quirk 属性名与内核不一致:
+`snps,dis_enblslpm_quirk`(下划线!)/`snps,dis-u2-freeclk-exists-quirk`(连字符)/
+`snps,dis_u2_susphy_quirk`(下划线!)——从内核 DT 抄 quirk 名会静默失效。
+
+**下一步(优先序)**:
+1. 全量 usb2phy GRF(0x00-0x100+)Linux↔U-Boot 逐字节差分(此前只对了前 6 字);
+2. usbdp_phy1(SS 侧)U-Boot phy-rockchip-usbdp.c ↔ 内核驱动逐行对照;
+3. CLK_USB2PHY_HDPTXRXPHY_REF 门控位 CRU 差分(Linux↔U-Boot);
+4. 查上游主线 rk3588 EHCI/xhci USB host 是否本就没人跑通过(ml 邮件列表);
+5. 参考 edk2 UsbHcd.c 全序列(GCTL 缩放/scrable 等)逐项补齐。
+
+代码:u-boot 树分支 u-boot-edge-really(commits 08d5cbc→c8dc338→本提交);
+bundle: /data/ruili/u-boot-really-20261121.bundle(328MB,待推 GitLab,缺凭据)。
