@@ -282,3 +282,25 @@ u26xxx on nvme 0:1 = 自装 Linux,一张菜单双系统切换)。三条路径:
 | 刷入流程 | ✅ 备份(loader-pre-menu-20261120.img, md5 5cec58=Armbian loader)→ dd seek=64 → 回读一致 ×2 轮 |
 
 菜单在 autoboot(bootdelay=1)后接管,BOOTCOMMAND=really_bootmenu。
+
+## 十一、USB 硬盘系统交付(2026-11-20 深夜)
+
+**交付形态**:TF 卡 extlinux 承载引导文件(内核/initrd/dtb),`root=UUID(2af00cca)` 指向
+USB 硬盘(HGST 500G 机械盘,PhiHardisk H1 盒,直插)。实测串口证据:
+`EXT4-fs (sda1): re-mounted 2af00cca… r/w` + `really-usb login`。拔 TF 前系统盘独立存在但
+无法引导(引导文件在 TF);拔 USB 硬盘则回落 TF 系统(really-tf)。
+
+**过程中修好的**:
+- EHCI/OHCI 四总线 clocks 报错:节点 clocks 第 4 项是 u2phy 节点(内核怪写法),
+  U-Boot 解析必挂 → `/delete-property/ clocks` 修复,五总线全部起来;
+- fc400000(xhci/USB3)补齐 4 个 Rockchip DWC3 quirk(与内核 DT 一致)。
+
+**遗留开放问题:U-Boot 阶段所有 USB 总线都枚举不到任何设备**(总线活、根集线器活、
+phy 驱动表齐全,但端口检测始终无连接,连 USB2 摄像头也不出现)——因此"纯 USB 引导"
+(不经 TF)尚未打通。后续方向:开 DEBUG 观察 PORTSC;对照 edk2-rockchip 的 USB 初始化
+(其 README 标 USB Host 🟢Working)找差异。
+
+**当晚连环事故与处置**(供复盘):插盘瞬间掉电→ROM 不读 eMMC→Maskrom 徘徊(串口静默!
+Maskrom 不打印)→重刷 loader 无效(loader 区其实完好,回读 md5 一致)→ 冷启动后自愈;
+PHY 延迟绑定(~221s)致多轮"无网",靠串口 sudo 补静态 IP 续命;一次 extlinux 修改失败
+是 UUID 张冠李戴(TF=…3ca8-42c3…,eMMC=…cb05-4eef…)。
