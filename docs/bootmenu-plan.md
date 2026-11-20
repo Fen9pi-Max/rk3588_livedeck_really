@@ -304,3 +304,16 @@ phy 驱动表齐全,但端口检测始终无连接,连 USB2 摄像头也不出�
 Maskrom 不打印)→重刷 loader 无效(loader 区其实完好,回读 md5 一致)→ 冷启动后自愈;
 PHY 延迟绑定(~221s)致多轮"无网",靠串口 sudo 补静态 IP 续命;一次 extlinux 修改失败
 是 UUID 张冠李戴(TF=…3ca8-42c3…,eMMC=…cb05-4eef…)。
+
+## 十二、HDMI 音频 SError panic 修复(2026-11-20)
+
+**现象**:really-usb 运行 ~16 分钟后 `Kernel panic - not syncing: Asynchronous SError Interrupt`,
+栈:wireplumber → hdmi_codec_shutdown → dw_hdmi_qp_bridge_clear_audio_infoframe → regmap MMIO 读 → 外部中止。
+**根因**:主线 dw-hdmi-qp 已知竞态——显示电源管理把 HDMI 控制器下电后,wireplumber 的音频
+探测/关闭路径仍去读寄存器。981s 触发点是 wireplumber 开机探测周期,必然复发。
+**修复**(零内核改动):`/etc/wireplumber/wireplumber.conf.d/51-no-hdmi.conf` ——
+`monitor.alsa.rules` 对 `node.name ~ "alsa_output.*hdmi*"` 置 `node.disabled = true`;
+`systemctl --user restart wireplumber pipewire pipewire-pulse` 后 `wpctl status | grep -ci hdmi = 0`。
+**已应用到**:USB 硬盘系统(really-usb)+ TF 系统(mmcblk1p1 挂载拷贝,eMMC 系统未动)。
+若未来需要 HDMI 出声:删该配置文件重启 wireplumber 即恢复(风险自负)。
+备选方案(未用):拉黑 snd_soc_hdmi_codec / 内核升级含上游修复时移除此 workaround。
