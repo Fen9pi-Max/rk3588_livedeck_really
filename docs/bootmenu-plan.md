@@ -235,3 +235,18 @@ u26xxx on nvme 0:1 = 自装 Linux,一张菜单双系统切换)。三条路径:
 
 刷机总数 = 2;所有信息采集(bootimg 结构、cmdline、GPT)前置到窗口 0/1,
 窗口 2 不存在"刷了才发现缺信息"的返工路径。
+
+## 八、USB 硬盘/优盘启动(2026-11-20,增量已构建待刷)
+
+- **boot_targets 零改动**:`mmc1 mmc0 nvme scsi usb …` 已含 usb(TF/eMMC 之后)。
+- **缺口(已补)**:线上 loader `CONFIG_USB_XHCI_DWC3` 未开 + really.dts 只开了 OTG 从模式。
+  已在 Armbian v2026.07 树增量:
+  - `configs/really-rk3588_defconfig`:+`CONFIG_USB_XHCI_DWC3=y`(USB_STORAGE/CMD_USB 本就有)
+  - `rk3588-really.dts`:+`&usb_host1_xhci`(fc400000,USB3 主机口,dr_mode=host,内核 DT 实证
+    此口接线)+ `&u2phy1/_otg` + `&usbdp_phy1` + 两对 EHCI/OHCI(fc800000/fc880000)
+  - 产物:`…/u-boot-really/v2026.07/u-boot-rockchip-usb.bin`(md5 00e48b65,FIT 结构与线上链一致:atf-1/2/3+fdt 无 tee;**BL31 必须用 v1.48**——v1.56 会产出 atf-1+tee-1 结构,即 out2026 变砖链;原位构建,勿用 O= 外部目录)
+- **USB 盘内容与 TF 卡同构**(ESP/extlinux,root=UUID),插上即扫描。
+- **刷入纪律**:与 bootmenu/音量键等 loader 改动**攒批一次刷**;刷前串口在线验证
+  `usb start && usb tree` 枚举;回滚 = 现有 Armbian loader 备份。
+- 注意:U-Boot 阶段先按 USB2 高速验收(USB3 combo PHY 初始化复杂,内核起来后全速);
+  若要"USB 优先于 TF",调 env `boot_targets` 把 usb 提前即可,无需重编。
