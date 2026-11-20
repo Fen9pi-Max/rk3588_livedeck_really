@@ -367,3 +367,10 @@ FREECLK 全清,edk2 同款)/ VBUS ✓(内核 DT 无 vbus 门控,硬供电)/ 时�
 
 代码:u-boot 树分支 u-boot-edge-really(commits 08d5cbc→c8dc338→本提交);
 bundle: /data/ruili/u-boot-really-20261121.bundle(328MB,待推 GitLab,缺凭据)。
+
+**深夜追加排除(2026-11-21 凌晨)**:PMU CLKSEL_CON14/GATE_CON4 两态读数一致(PHY ref
+时钟 U-Boot 下本就开);xhci-dwc3.c 的 dwc3_core_init 已含 edk2 等价软复位舞蹈
+(GCTL CORESOFTRESET + USB2/3 PHYSOFTRST);全量 usb2phy GRF(0x00-0xcf)差分仅
+0x84/0xc0 的链路状态位差(设备在场的结果,非配置原因)。**剩余唯一未对照驱动:
+usbdp_phy1(SS 侧,U-Boot phy-rockchip-usbdp.c ↔ 内核)**;另需查上游 rk3588 主线
+U-Boot USB host 是否本就无人跑通(edk2 可用是因其为独立栈)。
